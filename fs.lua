@@ -34,8 +34,9 @@ if win then
 	typedef const void*    LPCVOID;
 	typedef char*          LPSTR;
 	typedef const char*    LPCSTR;
-	typedef wchar_t*       LPWSTR;
-	typedef const wchar_t* LPCWSTR;
+	typedef wchar_t        WCHAR;
+	typedef WCHAR*         LPWSTR;
+	typedef const WCHAR*   LPCWSTR;
 	typedef BOOL           *LPBOOL;
 
 	// for mkdir(); not yet used.
@@ -43,7 +44,7 @@ if win then
 		DWORD  nLength;
 		LPVOID lpSecurityDescriptor;
 		BOOL   bInheritHandle;
-	} SECURITY_ATTRIBUTES, *PSECURITY_ATTRIBUTES, *LPSECURITY_ATTRIBUTES;
+	} SECURITY_ATTRIBUTES, *LPSECURITY_ATTRIBUTES;
 	]]
 
 else
@@ -108,9 +109,9 @@ if win then
 
 	local FORMAT_MESSAGE_FROM_SYSTEM = 0x00001000
 
-	function check(ret)
+	function check(ret, errcode)
 		if ret then return ret end
-		local errcode = C.GetLastError()
+		errcode = errcode or C.GetLastError()
 		local bufsize = 256
 		local buf = cbuf(bufsize)
 		local sz = C.FormatMessageA(
@@ -127,9 +128,9 @@ else
 	char *strerror(int errnum);
 	]]
 
-	function check(ret)
+	function check(ret, errno)
 		if ret then return ret end
-		local errno = errno or ffi.errno()
+		errno = errno or ffi.errno()
 		return nil, str(C.strerror(errno)), errno
 	end
 
@@ -147,7 +148,7 @@ local wcs, mbs, wbuf
 
 if win then
 
-	wbuf = ffi.typeof'wchar_t[?]'
+	wbuf = ffi.typeof'WCHAR[?]'
 
 	cdef[[
 	int MultiByteToWideChar(
@@ -181,10 +182,7 @@ if win then
 
 	function mbs(ws)
 		local sz = C.WideCharToMultiByte(CP_UTF8, 0, ws, -1, nil, 0, nil, nil)
-		if sz == 0 then --conversion error
-			local _, err = check(false)
-			error(err)
-		end
+		assert_check(sz ~= 0)
 		local buf = cbuf(sz)
 		local sz = C.WideCharToMultiByte(CP_UTF8, 0, ws, -1, buf, sz, nil, nil)
 		return str(buf, sz-1) --sz includes null terminator
@@ -196,6 +194,8 @@ end
 
 cdef[[
 typedef struct FILE FILE;
+int _fileno (struct FILE *stream);
+int fclose (FILE*);
 ]]
 
 local file = {}
@@ -204,8 +204,10 @@ function fs.type(file) --'file'
 	return ffi.istype(file, 'FILE*')
 end
 
+local fileno = ffi.abi'win' and C._fileno or C.fileno
 function file.fileno(file)
-
+	local fd = fileno(file)
+	return check(fd ~= -1 and fd)
 end
 
 function file.close(file)
@@ -255,7 +257,7 @@ function file.eof(file)
 end
 
 
---sync i/o -------------------------------------------------------------------
+--i/o ------------------------------------------------------------------------
 
 cdef[[
 size_t fread  (void*, size_t, size_t, FILE*);
@@ -324,7 +326,7 @@ function fs.inode(file)
 
 end
 
-function fs.mode(file)
+function fs.type(file)
 	--file, dir, link, socket, pipe, char device, block device, other
 end
 
@@ -384,13 +386,31 @@ function fs.blksize(file)
 
 end
 
-function fs.setmode(file, mode)
-	local binary = assert(mode:match'^[bt]', 'invalid mode') == 'b'
-	if win then
-		--
-	else
+
+local settextmode
+
+if win then
+
+	cdef[[
+	int _setmode(int fd, int mode);
+	]]
+
+	function settextmode(file, mode)
+		local mode = mode == 't' and 0x4000 or 0x8000
+		return check(C._setmode(file:fileno(), mode) ~= -1)
+	end
+
+else
+
+	function settextmode(file, mode)
 		return true, 'binary'
 	end
+
+end
+
+function file.settextmode(file, mode)
+	local mode = assert(mode:match'^[bt]', 'invalid mode')
+	return settextmode(file, mode)
 end
 
 --atime and mtime ------------------------------------------------------------
@@ -425,6 +445,8 @@ end
 
 --mkdir/rmdir ----------------------------------------------------------------
 
+local mkdir, rmdir
+
 if win then
 
 	cdef[[
@@ -435,11 +457,11 @@ if win then
 	BOOL RemoveDirectory(LPCWSTR lpPathName);
 	]]
 
-	function fs.mkdir(path)
+	function mkdir(path)
 		return check(C.CreateDirectory(wcs(path)) ~= 0)
 	end
 
-	function fs.rmdir(path)
+	function rmdir(path)
 		return check(C.RemoveDirectory(wcs(path)) ~= 0)
 	end
 
@@ -450,23 +472,172 @@ else
    int mkdir(const char *pathname, mode_t mode);
 	]]
 
-	function fs.mkdir(path, mode)
+	function mkdir(path, mode)
 		return check(C.mkdir(path, mode or 0x1ff) == 0)
 	end
 
-	function fs.rmdir(path)
+	function rmdir(path)
 		return check(C.rmdir(path) == 0)
 	end
 
 end
 
+function fs.mkdir(path, mode, recursive)
+	if recursive then
+		--TODO: implement recursive mkdir
+	else
+		return mkdir(path, mode)
+	end
+end
+
+function fs.rmdir(path, recursive)
+	if recursive then
+		--TODO: implement recursive removal of empty dirs
+	else
+		return rmdir(path)
+	end
+end
+
+
 --directory listing ----------------------------------------------------------
 
 if win then
 
-	function fs.dir(path)
-		--
+		cdef[[
+		typedef struct {
+			DWORD dwLowDateTime;
+			DWORD dwHighDateTime;
+		} FILETIME;
+
+		enum {
+			MAX_PATH = 260
+		};
+
+		typedef struct {
+			DWORD dwFileAttributes;
+			FILETIME ftCreationTime;
+			FILETIME ftLastAccessTime;
+			FILETIME ftLastWriteTime;
+			DWORD nFileSizeHigh;
+			DWORD nFileSizeLow;
+			DWORD dwReserved0;
+			DWORD dwReserved1;
+			WCHAR cFileName[MAX_PATH];
+			WCHAR cAlternateFileName[14];
+		} WIN32_FIND_DATAW, *LPWIN32_FIND_DATAW;
+
+		HANDLE FindFirstFile(LPCWSTR, LPWIN32_FIND_DATAW);
+		BOOL FindNextFileW(HANDLE, LPWIN32_FIND_DATAW);
+		BOOL FindClose(HANDLE);
+
+		]]
+
+		--[==[
+HANDLE hFind = FindFirstFile(TEXT("C:\\Users\\Andre\\Dropbox\\Programmering privat\\Diablo III DPS Calculator\\Debug\\SavedProfiles\\*"), &ffd);
+
+if (INVALID_HANDLE_VALUE != hFind)
+{
+    do
+    {
+        //...
+
+    } while(FindNextFile(hFind, &ffd) != 0);
+    FindClose(hFind);
+}
+
+else
+{
+    // Report failure.
+}
+		local ok
+		ok,findfirst = pcall(function() return lib._findfirst32 end)
+		if not ok then findfirst = lib._findfirst end
+		ok,findnext = pcall(function() return lib._findnext32 end)
+		if not ok then findnext = lib._findnext end
+
+		wfindfirst = lib._wfindfirst
+		wfindnext = lib._wfindnext
 	end
+
+	local function findclose(dentry)
+		if dentry and dentry.handle ~= -1 then
+			lib._findclose(dentry.handle)
+			dentry.handle = -1
+		end
+	end
+
+	local dir_type = ffi.metatype("struct {int handle;}", {
+		__gc = findclose
+	})
+
+	local function close(dir)
+		findclose(dir._dentry)
+		dir.closed = true
+	end
+
+	local function iterator(dir)
+		if dir.closed ~= false then error("closed directory") end
+		local entry = ffi.new("_finddata_t")
+		if not dir._dentry then
+			dir._dentry = ffi.new(dir_type)
+			dir._dentry.handle = findfirst(dir._pattern, entry)
+			if dir._dentry.handle == -1 then
+				dir.closed = true
+				return nil, errno()
+			end
+			return ffi_str(entry.name)
+		end
+
+		if findnext(dir._dentry.handle, entry) == 0 then
+			return ffi_str(entry.name)
+		end
+		close(dir)
+		return nil
+	end
+
+	local function witerator(dir)
+		if dir.closed ~= false then error("closed directory") end
+		local entry = ffi.new("_wfinddata_t")
+		if not dir._dentry then
+			dir._dentry = ffi.new(dir_type)
+			local szPattern = win_utf8_to_unicode(dir._pattern);
+			dir._dentry.handle = wfindfirst(szPattern, entry)
+			if dir._dentry.handle == -1 then
+				dir.closed = true
+				return nil, errno()
+			end
+			local szName = win_unicode_to_utf8(entry.name)--, -1, szName, 512);
+			return ffi_str(szName)
+		end
+
+		if wfindnext(dir._dentry.handle, entry) == 0 then
+			local szName = win_unicode_to_utf8(entry.name)--, -1, szName, 512);
+			return ffi_str(szName)
+		end
+		close(dir)
+		return nil
+	end
+
+	local dirmeta = {__index = {
+		next = iterator,
+		close = close,
+	}}
+
+	local wdirmeta = {__index = {
+		next = witerator,
+		close = close,
+	}}
+
+	function fs.dir(path)
+		--TODO: we should check that the path exists before starting the iterator
+		local dir_obj = setmetatable({
+			_pattern = path..'/*',
+			closed  = false,
+		}, wdirmeta)
+		return witerator, dir_obj
+	end
+
+]==]
 
 else
 
@@ -505,8 +676,9 @@ else
 
 	function dir.close(dir)
 		if dir._dentry == nil then return end
-		C.closedir(dir._dentry)
+		local ret = C.closedir(dir._dentry)
 		dir._dentry = nil
+		return check(ret == 0)
 	end
 
 	function dir.next(dir)
@@ -515,8 +687,9 @@ else
 		if entry ~= nil then
 			return str(entry.d_name)
 		else
+			local errno = ffi.errno()
 			dir:close()
-			return nil
+			return check(false, errno)
 		end
 	end
 
@@ -676,6 +849,10 @@ function fs.relpath(path, pwd)
 end
 
 function fs.realpath(path)
+	-- we should check if the path exists on windows
+end
+
+function fs.readlink(path)
 
 end
 
