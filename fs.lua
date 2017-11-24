@@ -69,9 +69,10 @@ end
 
 local cbuf = ffi.typeof'char[?]'
 
-local pathbuf
+local pathbuf, perms_arg
 
 if not win then
+
 	local MAX_PATH = 4096
 	local buf, bufsz
 	function pathbuf(sz) --keep an ever-increasing buffer
@@ -85,6 +86,20 @@ if not win then
 		end
 		return buf, bufsz
 	end
+
+	function perms_arg(perms, old_perms)
+		if type(perms) == 'string' then
+			if perms:find'^[0-7]+$' then
+				perms = tonumber(perms, 8)
+			else
+				assert(not perms:find'[^%+%-ugorwx]', 'invalid permissions')
+				--TODO: parse perms
+			end
+		else
+			return perms
+		end
+	end
+
 end
 
 --error reporting ------------------------------------------------------------
@@ -204,20 +219,6 @@ function fs.type(file) --'file'
 	return ffi.istype(file, 'FILE*')
 end
 
-local fileno = ffi.abi'win' and C._fileno or C.fileno
-function file.fileno(file)
-	local fd = fileno(file)
-	return check(fd ~= -1 and fd)
-end
-
-function file.close(file)
-
-end
-
-function file.handle(file)
-
-end
-
 local function open_filename(filename, ...)
 
 end
@@ -244,6 +245,20 @@ function fs.open(file, ...)
 	elseif ffi.istype(file, 'HANDLE') then
 		return tie(open_handle(file, ...))
 	end
+end
+
+local fileno = ffi.abi'win' and C._fileno or C.fileno
+function file.fileno(file)
+	local fd = fileno(file)
+	return check(fd ~= -1 and fd)
+end
+
+function file.handle(file)
+
+end
+
+function file.close(file)
+
 end
 
 --seeking --------------------------------------------------------------------
@@ -375,7 +390,12 @@ function fs.size(file, newsize)
 end
 
 function fs.perms(file, newperms)
-
+	if newperms then
+		newperms = perms_arg(newperms, fs.perms(file))
+		--
+	else
+		--
+	end
 end
 
 function fs.blocks(file)
@@ -472,8 +492,8 @@ else
    int mkdir(const char *pathname, mode_t mode);
 	]]
 
-	function mkdir(path, mode)
-		return check(C.mkdir(path, mode or 0x1ff) == 0)
+	function mkdir(path, perms)
+		return check(C.mkdir(path, perms or 0x1ff) == 0)
 	end
 
 	function rmdir(path)
@@ -482,11 +502,11 @@ else
 
 end
 
-function fs.mkdir(path, mode, recursive)
+function fs.mkdir(path, perms, recursive)
 	if recursive then
 		--TODO: implement recursive mkdir
 	else
-		return mkdir(path, mode)
+		return mkdir(path, perms)
 	end
 end
 
@@ -675,14 +695,18 @@ else
 	local dir = {}
 
 	function dir.close(dir)
-		if dir._dentry == nil then return end
+		if dir:closed() then return end
 		local ret = C.closedir(dir._dentry)
 		dir._dentry = nil
 		return check(ret == 0)
 	end
 
+	function dir.closed(dir)
+		return dir._dentry == nil
+	end
+
 	function dir.next(dir)
-		assert(dir._dentry ~= nil, 'directory closed')
+		assert(not dir:closed(), 'directory closed')
 		local entry = C.readdir(dir._dentry)
 		if entry ~= nil then
 			return str(entry.d_name)
@@ -822,12 +846,17 @@ function fs.symlink(file, target)
 	end
 end
 
-function fs.link(file, target)
+function fs.hardlink(file, target)
 	if not target then
 		return get_link_target(file)
 	else
 		return set_link_target(file, target)
 	end
+end
+
+function fs.link(file, target, symlink)
+	local f = symlink and fs.symlink or fs.hardlink
+	return f(file, target)
 end
 
 --path manipulation ----------------------------------------------------------
