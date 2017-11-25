@@ -1,127 +1,73 @@
 local ffi = require'ffi'
 local fs = require'fs'
-local posix = ffi.os ~= 'Windows'
+local win = ffi.abi'win'
+local posix = not win
 
-local eq = assert.are.same
-local is_nil = assert.is_nil
-local is_not_nil = assert.is_not_nil
-local is_true = assert.is_true
-local has_error = assert.has_error
+local test = setmetatable({}, {__newindex = function(t, k, v)
+	rawset(t, k, v)
+	rawset(t, #t+1, k)
+end})
 
-local attr_names = {
-	'access',
-	'change',
-	'dev',
-	'gid',
-	'ino',
-	'mode',
-	'modification',
-	'nlink',
-	'permissions',
-	'rdev',
-	'size',
-	'uid'
-}
-if posix then
-	local extra_attrs = {'blksize', 'blocks'}
-	for i = 1, #extra_attrs do
-		table.insert(attr_names, extra_attrs[i])
-	end
+
+function test.open_close()
+	local f = assert(fs.open'lfs_test.lua')
+	assert(fs.isfile(f))
+	f:close()
 end
 
-describe('lfs', function()
-	describe('#attributes', function()
+--[[
+--stdio opening/closing
 
-		it('with attribute name', function()
-			for i = 1, #attr_names do
-				local attr = attr_names[i]
-				local info = fs.attributes('.', attr)
-				eq(fs.attributes('.', attr), info,
-				   attr..' is not equal')
-			end
-		end)
+function test.stdio_open_close_type_fileno_handle()
+	local f = assert(fs.open'lfs_test.lua')
+	assert(fs.isfile(f))
+	assert(f:fileno() > 2)
+	if win then
+		assert(f:handle())
+	end
+	f:close()
+end
 
-		it('with attributes table', function()
-			local tab = {"table", "for", "attributes"}
-			local info = fs.attributes('.', tab)
-			eq(fs.attributes('.', tab), info)
-		end)
+function test.open_fd()
 
-		it('with nonexisted file', function()
-			local info, err = fs.attributes('nonexisted')
-			is_nil(info)
-			eq('No such file or directory', err)
-		end)
+end
 
-		it('with nonexisted attribute', function()
-			has_error(function() fs.attributes('.', 'nonexisted') end,
-				"invalid attribute name 'nonexisted'")
-			if not posix then
-				has_error(function() fs.attributes('.', 'blocks') end,
-					"invalid attribute name 'blocks'")
-			end
-		end)
-	end)
+function test.open_handle()
 
-	describe('#symlinkattributes', function()
-		local symlink = 'lfs_ffi.lua.link'
+end
+]]
 
-		it('link failed', function()
-			if posix then
-				local res, err = fs.link('xxx', symlink)
-				is_nil(res)
-				eq(err, 'No such file or directory')
-			end
-		end)
+function test.mkdir_rmdir()
+	local pwd = assert(fs.pwd())
+	assert(fs.mkdir'lfs_test_dir')
+	assert(fs.pwd'lfs_test_dir')
+	assert(fs.pwd(pwd))
+	assert(fs.rmdir'lfs_test_dir')
+end
 
-		it('hard link', function()
-			local _, err = fs.link('lfs_ffi.lua', symlink)
-			is_nil(err)
-			eq(fs.attributes(symlink, 'mode'), 'file')
-			eq(fs.symlinkattributes(symlink, 'mode'), 'file')
-		end)
+function test.dir()
+	local found
+	local n = 0
+	for file in fs.dir() do
+		found = found or file == 'lfs_test.lua'
+		n = n + 1
+		--print(file)
+	end
+	assert(n >= 3) -- at least '.', '..' and 'lfs_test.lua'
+	print(string.format('found %d dir/file entries in pwd', n))
+	assert(found, 'lfs_test.lua not found in pwd')
+end
 
-		it('soft link', function()
-			if posix then
-				local _, err = fs.link('lfs_ffi.lua', symlink, true)
-				is_nil(err)
-				eq(fs.attributes(symlink, 'mode'), 'file')
-				eq(fs.symlinkattributes(symlink, 'mode'), 'link')
-			end
-		end)
+function test.pwd()
+	local pwd = fs.pwd()
+	local dir = posix and '/home' or 'C:\\Windows'
+	assert(fs.pwd(dir))
+	assert(fs.pwd() == dir)
+	fs.pwd(pwd)
+	assert(fs.pwd() == pwd)
+end
 
-		it('without argument', function()
-			fs.link('lfs_ffi.lua', symlink, true)
-			local info = fs.symlinkattributes(symlink)
-			local expected_info = fs.symlinkattributes(symlink)
-			for k, v in pairs(expected_info) do
-				eq(v, info[k], k..'is not equal')
-			end
-		end)
-
-		it('with attribute name', function()
-			fs.link('lfs_ffi.lua', symlink, true)
-			for i = 1, #attr_names do
-				local attr = attr_names[i]
-				local info = fs.symlinkattributes(symlink, attr)
-				eq(fs.symlinkattributes(symlink, attr), info,
-				   attr..' is not equal')
-			end
-		end)
-
-		it('add target field', function()
-			if posix then
-				fs.link('lfs_ffi.lua', symlink, true)
-				eq('lfs_ffi.lua', fs.symlinkattributes(symlink, 'target'))
-				eq('lfs_ffi.lua', fs.symlinkattributes(symlink).target)
-			end
-		end)
-
-		after_each(function()
-			os.remove(symlink)
-		end)
-	end)
-
+--[=[
 	describe('#setmode', function()
 		local fh
 		before_each(function()
@@ -346,18 +292,10 @@ describe('lfs', function()
 end)
 
 
---[[
-#!/usr/bin/env lua5.1
 
-local tmp = "/tmp"
-local sep = string.match (package.config, "[^\n]+")
-local upper = ".."
+------------- lfs tests
 
-local lfs = require"lfs"
-print (lfs._VERSION)
 
-io.write(".")
-io.flush()
 
 function attrdir (path)
         for file in lfs.dir(path) do
@@ -541,4 +479,17 @@ local iter, dir = lfs.dir(tmp)
 dir:close()
 assert(not pcall(dir.next, dir))
 print"Ok!"
-]]
+]=]
+
+if not ... or ... == 'fs_test' then
+	--run all tests in the order in which they appear in the code.
+	for i,k in ipairs(test) do
+		print('test '..k)
+		local ok, err = xpcall(test[k], debug.traceback)
+		if not ok then
+			print(err)
+		end
+	end
+else
+	test[...]()
+end

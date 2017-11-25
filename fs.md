@@ -15,12 +15,13 @@ Filesystem API for Windows, Linux and OSX. Features:
 
 -------------------------------------------- -----------------------------------------------
 __file objects__
-`fs.open(path, mode) -> f`
-`fs.type(f) -> 'file'`
+`fs.open(path | fd, mode) -> f`
+`fs.file(f) -> f`
+`fs.isfile(f) -> true|false`
 `f:fileno() -> fd`
 `f:handle() -> HANDLE`
 `f:close()`
-`f:settextmode('b'|'t')`
+`f:textmode('b'|'t')`
 __streams__
 `f:read(...) -> readlen`
 `f:write(...)`
@@ -53,6 +54,8 @@ __directories__
 `dir:close()`
 `dir:closed() -> true|false`
 `fs.pwd([newpwd]) -> path`
+`fs.mkdir(path[, perms])`
+`fs.rmdir(path)`
 __locking__
 `fs.lock(path)`
 `fs.unlock(path)`
