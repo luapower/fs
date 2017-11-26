@@ -8,10 +8,10 @@ local ffi = require'ffi'
 local bit = require'bit'
 setfenv(1, require'fs_backend')
 
-local C   = ffi.C
-local x64  = ffi.arch == 'x64'
+local C = ffi.C
+local x64 = ffi.arch == 'x64'
 local cdef = ffi.cdef
-local osx   = ffi.os == 'OSX'
+local osx = ffi.os == 'OSX'
 local linux = ffi.os == 'Linux'
 
 assert(linux or osx, 'platform not Linux or OSX')
@@ -30,9 +30,40 @@ typedef unsigned int mode_t;
 typedef size_t time_t;
 ]]
 
---open/close/remove ----------------------------------------------------------
+--open/close/remove/move -----------------------------------------------------
+
+o_flags = {
+	accmode   = 00000003,
+	rdonly    = 00000000,
+	wronly    = 00000001,
+	rdwr      = 00000002,
+	creat     = 00000100, -- not fcntl
+	excl      = 00000200, -- not fcntl
+	noctty    = 00000400, -- not fcntl
+	trunc     = 00001000, -- not fcntl
+	append    = 00002000,
+	nonblock  = 00004000,
+	dsync     = 00010000, -- used to be o_sync, see below
+	direct    = 00040000, -- direct disk access hint
+	largefile = 00100000,
+	directory = 00200000, -- must be a directory
+	nofollow  = 00400000, -- don't follow links
+	noatime   = 01000000,
+	cloexec   = 02000000, -- set close_on_exec
+	sync      = 04000000,
+}
+
+cdef[[
+int open(const char *pathname, int flags, mode_t mode);
+]]
+
+function fs.open(path, opt)
+	--
+end
 
 fs.remove = os.remove
+
+fs.move = os.rename
 
 --mkdir/rmdir ----------------------------------------------------------------
 

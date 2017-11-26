@@ -8,8 +8,8 @@ local ffi = require'ffi'
 local bit = require'bit'
 setfenv(1, require'fs_backend')
 
-local C   = ffi.C
-local x64  = ffi.arch == 'x64'
+local C = ffi.C
+local x64 = ffi.arch == 'x64'
 local cdef = ffi.cdef
 
 assert(ffi.abi'win', 'platform not Windows')
@@ -19,13 +19,13 @@ assert(ffi.abi'win', 'platform not Windows')
 cdef(string.format('typedef %s ULONG_PTR;', x64 and 'int64_t' or 'int32_t'))
 
 cdef[[
-typedef void*          HANDLE;
-typedef int16_t        WORD;
-typedef int32_t        DWORD, *PDWORD, *LPDWORD;
-typedef uint32_t       UINT;
+typedef void           VOID, *PVOID, *LPVOID;
+typedef VOID*          HANDLE;
+typedef unsigned short WORD;
+typedef unsigned long  DWORD, *PDWORD, *LPDWORD;
+typedef unsigned int   UINT;
 typedef int            BOOL;
 typedef ULONG_PTR      SIZE_T;
-typedef void           VOID, *PVOID, *LPVOID;
 typedef const void*    LPCVOID;
 typedef char*          LPSTR;
 typedef const char*    LPCSTR;
@@ -134,7 +134,7 @@ local function mbs(ws, wsz, mbuf) --WCHAR* -> string
 	return str(buf, sz-1)
 end
 
---open/close/remove ----------------------------------------------------------
+--open/close/remove/move -----------------------------------------------------
 
 cdef[[
 HANDLE CreateFileW(
@@ -148,6 +148,11 @@ HANDLE CreateFileW(
 );
 BOOL CloseHandle(HANDLE hObject);
 BOOL DeleteFileW(LPCWSTR lpFileName);
+BOOL MoveFileExW(
+	LPCWSTR lpExistingFileName,
+	LPCWSTR lpNewFileName,
+	DWORD   dwFlags
+);
 ]]
 
 --CreateFile access rights flags
@@ -287,6 +292,24 @@ function fs.remove(path)
 	return check(C.DeleteFileW(wcs(path)) ~= 0)
 end
 
+local move_flags = {
+	--MOVEFILE_*
+	replace_existing      =  0x1,
+	copy_allowed          =  0x2,
+	delay_until_reboot    =  0x4,
+	fail_if_not_trackable = 0x20,
+	write_through         =  0x8,
+}
+
+local default_move_opt = {'replace_existing', 'write_through'} --posix
+function fs.move(oldpath, newpath, opt)
+	return check(C.MoveFileExW(
+		wcs(oldpath),
+		wcs(newpath, nil, wbuf),
+		flags(opt or default_move_opt, move_flags)
+	) ~= 0)
+end
+
 --read/write/flush -----------------------------------------------------------
 
 cdef[[
@@ -327,9 +350,24 @@ BOOL WriteFile(
 );
 
 BOOL FlushFileBuffers(HANDLE hFile);
+
+BOOL SetFilePointerEx(
+	HANDLE hFile,
+	uint64_t  liDistanceToMove,
+	uint64_t* lpNewFilePointer,
+	DWORD dwMoveMethod
+);
+
+BOOL SetEndOfFile(HANDLE hFile);
+
+BOOL GetFileSizeEx(
+  HANDLE    hFile,
+  uint64_t* lpFileSize
+);
 ]]
 
 local dwbuf = ffi.new'DWORD[1]'
+local u64buf = ffi.new'uint64_t[1]'
 
 function read(f, buf, sz)
 	local ok = C.ReadFile(f.handle, buf, sz, dwbuf, nil) ~= 0
@@ -345,6 +383,22 @@ end
 
 function file.flush(f)
 	return check(C.FlushFileBuffers(f.handle) ~= 0)
+end
+
+function seek(f, whence, offset)
+	local ok = C.SetFilePointerEx(f.handle, offset, u64buf, whence) ~= 0
+	if not ok then return check() end
+	return tonumber(u64buf[0])
+end
+
+function file.truncate(f)
+	return check(C.SetEndOfFile(f.handle) ~= 0)
+end
+
+function file.size(f)
+	local ok = C.GetFileSizeEx(f.handle, u64buf) ~= 0
+	if not ok then return check() end
+	return tonumber(u64buf[0])
 end
 
 --mkdir/rmdir ----------------------------------------------------------------
@@ -453,10 +507,7 @@ end
 
 cdef[[
 int SetCurrentDirectoryW(LPCWSTR lpPathName);
-DWORD GetCurrentDirectoryW(
-	DWORD  nBufferLength,
-	LPWSTR lpBuffer
-);
+DWORD GetCurrentDirectoryW(DWORD nBufferLength, LPWSTR lpBuffer);
 ]]
 
 function chdir(path)
@@ -470,20 +521,5 @@ function getcwd()
 	local sz = C.GetCurrentDirectoryW(sz, buf)
 	if sz == 0 then return check() end
 	return mbs(buf, sz)
-end
-
---file replacing -------------------------------------------------------------
-
-cdef[[
-int MoveFileExW(
-	LPCWSTR lpExistingFileName,
-	LPCWSTR lpNewFileName,
-	DWORD   dwFlags
-);
-]]
-
-function fs.replace(oldpath, newpath)
-	return check(C.MoveFileExW(
-		wcs(oldpath), wcs(newpath, nil, wbuf), 1) ~= 0)
 end
 

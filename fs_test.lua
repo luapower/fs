@@ -3,23 +3,121 @@ local fs = require'fs'
 local win = ffi.abi'win'
 local posix = not win
 
+local test_file = 'fs_test.tmp'
+
 local test = setmetatable({}, {__newindex = function(t, k, v)
 	rawset(t, k, v)
 	rawset(t, #t+1, k)
 end})
 
+local testfile = 'media/fs/testfile'
 
 function test.open_close()
-	local f = assert(fs.open'lfs_test.lua')
+	local f = assert(fs.open'fs_test.lua')
 	assert(fs.isfile(f))
-	f:close()
+	assert(not f:closed())
+	assert(f:close())
+	assert(f:closed())
 end
+
+function test.read_write()
+	local sz = 4096
+	local buf = ffi.new('uint8_t[?]', sz)
+
+	--write some patterns
+	local f = assert(fs.open(test_file, 'w'))
+	for i=0,sz-1 do
+		buf[i] = i
+	end
+	for i=1,4 do
+		assert(f:write(buf, sz))
+	end
+	assert(f:close())
+
+	--read them back
+	local f = assert(fs.open(test_file))
+	local t = {}
+	while true do
+		local readsz = assert(f:read(buf, sz))
+		if readsz == 0 then break end
+		t[#t+1] = ffi.string(buf, readsz)
+	end
+	assert(f:close())
+
+	--check them out
+	local s = table.concat(t)
+	for i=1,#s do
+		assert(s:byte(i) == (i-1) % 256)
+	end
+
+	assert(os.remove(test_file))
+end
+
+function test.seek()
+	local f = assert(fs.open(test_file, 'w'))
+
+	--test large file support by seeking out-of-bounds
+	local newpos = 2^51 + 113
+	local pos = assert(f:seek('set', newpos))
+	assert(pos == newpos)
+	local pos = assert(f:seek(-100))
+	assert(pos == newpos -100)
+	local pos = assert(f:seek('end', 100))
+	assert(pos == 100)
+
+	--write some data and check again
+	local newpos = 1024^2
+	local buf = ffi.new'char[1]'
+	local pos = assert(f:seek('set', newpos))
+	assert(pos == newpos) --seeked outside
+	buf[0] = 0xaa
+	f:write(buf, 1) --write outside cur
+	local pos = assert(f:seek())
+	assert(pos == newpos + 1) --cur advanced
+	local pos = assert(f:seek('end'))
+	assert(pos == newpos + 1) --end updated
+	assert(f:close())
+
+	assert(os.remove(test_file))
+end
+
+function test.truncate_seek()
+	--truncate/grow
+	local f = assert(fs.open(test_file, 'w'))
+	local newpos = 1024^2
+	local pos = assert(f:seek(newpos))
+	assert(pos == newpos)
+	assert(f:truncate())
+	local pos = assert(f:seek())
+	assert(pos == newpos)
+	assert(f:close())
+
+	--now check size
+	local f = assert(fs.open(test_file, 'r+'))
+	local pos = assert(f:seek'end')
+	assert(pos == newpos)
+	--truncate/shrink
+	local pos = assert(f:seek('end', -100))
+	assert(f:truncate())
+	assert(pos == newpos - 100)
+	assert(f:close())
+
+	--now check size
+	local f = assert(fs.open(test_file, 'r'))
+	local pos = assert(f:seek'end')
+	assert(pos == newpos - 100)
+	assert(f:close())
+
+	assert(os.remove(test_file))
+end
+
+
 
 --[[
 --stdio opening/closing
 
 function test.stdio_open_close_type_fileno_handle()
-	local f = assert(fs.open'lfs_test.lua')
+	local f = assert(fs.open'fs_test.lua')
 	assert(fs.isfile(f))
 	assert(f:fileno() > 2)
 	if win then
@@ -37,25 +135,26 @@ function test.open_handle()
 end
 ]]
 
-function test.mkdir_rmdir()
+function test.pwd_mkdir_rmdir()
 	local pwd = assert(fs.pwd())
-	assert(fs.mkdir'lfs_test_dir')
-	assert(fs.pwd'lfs_test_dir')
+	assert(fs.mkdir'fs_test_dir') --relative paths should work
+	assert(fs.pwd'fs_test_dir')   --relative paths should work
 	assert(fs.pwd(pwd))
-	assert(fs.rmdir'lfs_test_dir')
+	assert(fs.pwd() == pwd)
+	assert(fs.rmdir'fs_test_dir') --relative paths should work
 end
 
 function test.dir()
 	local found
 	local n = 0
 	for file in fs.dir() do
-		found = found or file == 'lfs_test.lua'
+		found = found or file == 'fs_test.lua'
 		n = n + 1
 		--print(file)
 	end
-	assert(n >= 3) -- at least '.', '..' and 'lfs_test.lua'
+	assert(n >= 3) -- at least '.', '..' and 'fs_test.lua'
 	print(string.format('found %d dir/file entries in pwd', n))
-	assert(found, 'lfs_test.lua not found in pwd')
+	assert(found, 'fs_test.lua not found in pwd')
 end
 
 function test.pwd()
