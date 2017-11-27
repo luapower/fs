@@ -26,13 +26,15 @@ __file i/o__
 `f:seek([whence] [, offset]) -> pos`
 `f:truncate()`
 `f:size() -> size`
+`f:stream() -> fs`
+`fs:close()`
 __filesystem operations__
 `fs.dir() -> dir, next
 `dir:next() -> name`
 `dir:close()`
 `dir:closed() -> true|false`
-`fs.mkdir(path[, perms])`
-`fs.rmdir(path)`
+`fs.mkdir(path, [recursive][, perms])`
+`fs.rmdir(path, [recursive])`
 `fs.pwd([newpwd]) -> path`
 `fs.remove(path)`
 `fs.move(path, newpath[, opt])`
@@ -58,8 +60,13 @@ __symlinks & hardlinks__
 `fs.symlink(target, path)`
 `fs.link(target, patn[, symbolic])`
 __paths__
-`fs.abspath(path) -> path`
-`fs.relpath(path) -> path`
+`fs.path(path|t[, dirsep]) -> path`
+`fs.basename(path) -> name`
+`fs.dirname(path) -> path`
+`fs.extname(path) -> ext`
+`fs.dirsep() -> s`
+`fs.abspath(path[, pwd]) -> path`
+`fs.relpath(path[, pwd]) -> path`
 `fs.realpath(path) -> path`
 `fs.readlink(path) -> path`
 __common paths__

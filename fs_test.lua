@@ -53,6 +53,19 @@ function test.read_write()
 	assert(os.remove(test_file))
 end
 
+function test.open_modes()
+	--TODO:
+	local f = assert(fs.open(test_file, 'w'))
+	f:close()
+end
+
+function test.stream()
+	local f = assert(assert(fs.open(test_file, 'w')):stream('w'))
+	f:close()
+	local f = assert(assert(fs.open(test_file, 'r')):stream('r'))
+	f:close()
+end
+
 function test.seek()
 	local f = assert(fs.open(test_file, 'w'))
 

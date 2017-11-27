@@ -6,7 +6,7 @@ if not ... then require'fs_test'; return end
 
 local ffi = require'ffi'
 local bit = require'bit'
-setfenv(1, require'fs_backend')
+setfenv(1, require'fs_common')
 
 local C = ffi.C
 local x64 = ffi.arch == 'x64'
@@ -122,6 +122,7 @@ int fsync(int fd);
 int64_t lseek(int fd, off_t offset, int whence) asm("lseek%s");
 int ftruncate(int fd, off_t length);
 int fstat(int fd, struct stat *buf);
+FILE *fdopen(int fd, const char *mode);
 ]], linux and '64' or ''))
 
 function file.read(f, buf, sz)
@@ -162,6 +163,14 @@ function file.size(f)
 	if not offset then return offset, err, errcode end
 	if not offset1 then return offset1, err1, errcode1 end
 	return offset1 + 1
+end
+
+function file.stream(f, mode)
+	local fs = C.fdopen(f, mode)
+	if fs == nil then return check() end
+	ffi.gc(f, nil) --fclose() will close the handle
+	ffi.gc(fs, stream.close)
+	return fs
 end
 
 --directory listing ----------------------------------------------------------
@@ -432,3 +441,24 @@ end
 function get_symlink_target(link_path)
 
 end
+
+--path manipulation ----------------------------------------------------------
+
+function fs.dirsep()
+	return '/'
+end
+
+--common paths ---------------------------------------------------------------
+
+function fs.homedir()
+
+end
+
+function fs.tmpdir()
+
+end
+
+function fs.exedir()
+
+end
+

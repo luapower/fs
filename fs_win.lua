@@ -6,7 +6,7 @@ if not ... then require'fs_test'; return end
 
 local ffi = require'ffi'
 local bit = require'bit'
-setfenv(1, require'fs_backend')
+setfenv(1, require'fs_common')
 
 local C = ffi.C
 local x64 = ffi.arch == 'x64'
@@ -332,6 +332,9 @@ BOOL GetFileSizeEx(
   HANDLE         hFile,
   PLARGE_INTEGER lpFileSize
 );
+
+FILE *_fdopen(int fd, const char *mode);
+int _open_osfhandle (HANDLE osfhandle, int flags);
 ]]
 
 local dwbuf = ffi.new'DWORD[1]'
@@ -369,6 +372,17 @@ function file.size(f)
 	local ok = C.GetFileSizeEx(f.handle, u64buf) ~= 0
 	if not ok then return check() end
 	return tonumber(u64buf[0])
+end
+
+function file.stream(f, mode)
+	local flags = 0
+	local fd = C._open_osfhandle(f.handle, flags)
+	if fd == -1 then return check_errno() end
+	local fs = C._fdopen(fd, mode)
+	if fs == nil then return check_errno() end
+	ffi.gc(f, nil) --fclose() will close the handle
+	ffi.gc(fs, stream.close)
+	return fs
 end
 
 --directory listing ----------------------------------------------------------
@@ -514,4 +528,25 @@ function fs.move(oldpath, newpath, opt)
 end
 
 --file attributes ------------------------------------------------------------
+
+
+--path manipulation ----------------------------------------------------------
+
+function fs.dirsep()
+	return '\\'
+end
+
+--common paths ---------------------------------------------------------------
+
+function fs.homedir()
+
+end
+
+function fs.tmpdir()
+
+end
+
+function fs.exedir()
+
+end
 
