@@ -14,6 +14,8 @@ local cdef = ffi.cdef
 local osx = ffi.os == 'OSX'
 local linux = ffi.os == 'Linux'
 
+--POSIX does not define an ABI and platfoms have slightly different cdefs
+--thus we have to limit support to the platforms we actually tested for.
 assert(linux or osx, 'platform not Linux or OSX')
 
 --ffi tools ------------------------------------------------------------------

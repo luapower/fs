@@ -75,37 +75,62 @@ assert_check_errno = assert_checker(check_errno)
 
 --flags
 
+local function memoize2(func)
+	cache = {}
+	return function(k1, k2)
+		local cache2 = cache[k1]
+		if cache2 == nil then
+			cache2 = {}
+			cache[k1] = cache2
+		end
+		local v = cache2[k2]
+		if v == nil then
+			v = func(k1, k2)
+			cache2[k2] = v
+		end
+		return v
+	end
+end
+
+local function table_flags(arg, masks)
+	local mask = 0
+	for k,v in pairs(arg) do
+		local flag
+		if type(k) == 'string' and v then --flags as table keys: {flag->true}
+			flag = k
+		elseif
+			type(k) == 'number'
+			and math.floor(k) == k
+			and type(v) == 'string'
+		then --flags as array: {flag1,...}
+			flag = v
+		end
+		if flag then
+			local m = assert(masks[flag], 'invalid flag %s', flag)
+			mask = bit.bor(mask, m)
+		end
+	end
+	return mask
+end
+
+local string_flags = memoize2(function(arg, masks)
+	if not arg:find'[ ,]' then
+		return assert(masks[arg], 'invalid flag %s', arg)
+	end
+	local t = {}
+	for s in arg:gmatch'[^ ,]+' do
+		t[#t+1] = s
+	end
+	return table_flags(t, masks)
+end)
+
 function flags(arg, masks)
 	if type(arg) == 'string' then
-		if not arg:find'[ ,]' then
-			return assert(masks[arg], 'invalid flag %s', arg)
-		end
-		local t = {}
-		for s in arg:gmatch'[^ ,]+' do
-			t[#t+1] = s
-		end
-		return flags(t, masks)
+		return string_flags(arg, masks)
+	elseif type(arg) == 'table' then
+		return table_flags(arg, masks)
 	elseif type(arg) == 'number' then
 		return arg
-	elseif type(arg) == 'table' then
-		local mask = 0
-		for k,v in pairs(arg) do
-			local flag
-			if type(k) == 'string' and v then --{flag->true}
-				flag = k
-			elseif
-				type(k) == 'number'
-				and math.floor(k) == k
-				and type(v) == 'string'
-			then --{flag1,...}
-				flag = v
-			end
-			if flag then
-				local m = assert(masks[flag], 'invalid flag %s', flag)
-				mask = bit.bor(mask, m)
-			end
-		end
-		return mask
 	elseif arg == nil then
 		return 0
 	else
@@ -123,10 +148,6 @@ function file.seek(f, whence, offset)
 end
 
 --filesystem operations
-
-local function pass(ok, ...)
-
-end
 
 function fs.mkdir(path, recursive, ...)
 	if recursive then
