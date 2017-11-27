@@ -33,6 +33,8 @@ typedef wchar_t        WCHAR;
 typedef WCHAR*         LPWSTR;
 typedef const WCHAR*   LPCWSTR;
 typedef BOOL           *LPBOOL;
+typedef int64_t        LONGLONG;
+typedef LONGLONG       LARGE_INTEGER, *PLARGE_INTEGER;
 
 typedef struct {
 	DWORD  nLength;
@@ -41,7 +43,7 @@ typedef struct {
 } SECURITY_ATTRIBUTES, *LPSECURITY_ATTRIBUTES;
 ]]
 
-local INVALID_HANDLE_VALUE = win and ffi.cast('HANDLE', -1)
+local INVALID_HANDLE_VALUE = ffi.cast('HANDLE', -1)
 
 --ffi tools ------------------------------------------------------------------
 
@@ -134,7 +136,7 @@ local function mbs(ws, wsz, mbuf) --WCHAR* -> string
 	return str(buf, sz-1)
 end
 
---open/close/remove/move -----------------------------------------------------
+--open/close -----------------------------------------------------------------
 
 cdef[[
 HANDLE CreateFileW(
@@ -147,12 +149,6 @@ HANDLE CreateFileW(
 	HANDLE hTemplateFile
 );
 BOOL CloseHandle(HANDLE hObject);
-BOOL DeleteFileW(LPCWSTR lpFileName);
-BOOL MoveFileExW(
-	LPCWSTR lpExistingFileName,
-	LPCWSTR lpNewFileName,
-	DWORD   dwFlags
-);
 ]]
 
 --CreateFile access rights flags
@@ -240,12 +236,6 @@ local str_opt = {
 	['w+'] = {access = 'read write', creation = 'create_always'},
 }
 
-local default_opt = {
-	access = {'read', 'write'},
-	sharing = {'read', 'write'},
-	creation = 'open_always',
-}
-
 --expose this because the frontend will set its metatype at the end.
 file_ct = ffi.typeof[[
 	struct {
@@ -288,29 +278,7 @@ function fs.isfile(f)
 	return ffi.istype(file_ct, f)
 end
 
-function fs.remove(path)
-	return check(C.DeleteFileW(wcs(path)) ~= 0)
-end
-
-local move_flags = {
-	--MOVEFILE_*
-	replace_existing      =  0x1,
-	copy_allowed          =  0x2,
-	delay_until_reboot    =  0x4,
-	fail_if_not_trackable = 0x20,
-	write_through         =  0x8,
-}
-
-local default_move_opt = {'replace_existing', 'write_through'} --posix
-function fs.move(oldpath, newpath, opt)
-	return check(C.MoveFileExW(
-		wcs(oldpath),
-		wcs(newpath, nil, wbuf),
-		flags(opt or default_move_opt, move_flags)
-	) ~= 0)
-end
-
---read/write/flush -----------------------------------------------------------
+--i/o ------------------------------------------------------------------------
 
 cdef[[
 typedef struct _OVERLAPPED {
@@ -327,55 +295,55 @@ typedef struct _OVERLAPPED {
 } OVERLAPPED, *LPOVERLAPPED;
 
 typedef struct _OVERLAPPED_ENTRY {
-	ULONG_PTR lpCompletionKey;
+	ULONG_PTR    lpCompletionKey;
 	LPOVERLAPPED lpOverlapped;
-	ULONG_PTR Internal;
-	DWORD dwNumberOfBytesTransferred;
+	ULONG_PTR    Internal;
+	DWORD        dwNumberOfBytesTransferred;
 } OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
 
 BOOL ReadFile(
-	HANDLE hFile,
-	LPVOID lpBuffer,
-	DWORD nNumberOfBytesToRead,
-	LPDWORD lpNumberOfBytesRead,
+	HANDLE       hFile,
+	LPVOID       lpBuffer,
+	DWORD        nNumberOfBytesToRead,
+	LPDWORD      lpNumberOfBytesRead,
 	LPOVERLAPPED lpOverlapped
 );
 
 BOOL WriteFile(
-	HANDLE hFile,
-	LPCVOID lpBuffer,
-	DWORD nNumberOfBytesToWrite,
-	LPDWORD lpNumberOfBytesWritten,
+	HANDLE       hFile,
+	LPCVOID      lpBuffer,
+	DWORD        nNumberOfBytesToWrite,
+	LPDWORD      lpNumberOfBytesWritten,
 	LPOVERLAPPED lpOverlapped
 );
 
 BOOL FlushFileBuffers(HANDLE hFile);
 
 BOOL SetFilePointerEx(
-	HANDLE hFile,
-	uint64_t  liDistanceToMove,
-	uint64_t* lpNewFilePointer,
-	DWORD dwMoveMethod
+	HANDLE         hFile,
+	LARGE_INTEGER  liDistanceToMove,
+	PLARGE_INTEGER lpNewFilePointer,
+	DWORD          dwMoveMethod
 );
 
 BOOL SetEndOfFile(HANDLE hFile);
 
 BOOL GetFileSizeEx(
-  HANDLE    hFile,
-  uint64_t* lpFileSize
+  HANDLE         hFile,
+  PLARGE_INTEGER lpFileSize
 );
 ]]
 
 local dwbuf = ffi.new'DWORD[1]'
 local u64buf = ffi.new'uint64_t[1]'
 
-function read(f, buf, sz)
+function file.read(f, buf, sz)
 	local ok = C.ReadFile(f.handle, buf, sz, dwbuf, nil) ~= 0
 	if not ok then return check() end
 	return dwbuf[0]
 end
 
-function write(f, buf, sz)
+function file.write(f, buf, sz)
 	local ok = C.WriteFile(f.handle, buf, sz, dwbuf, nil) ~= 0
 	if not ok then return check() end
 	return dwbuf[0]
@@ -385,7 +353,9 @@ function file.flush(f)
 	return check(C.FlushFileBuffers(f.handle) ~= 0)
 end
 
+local whences = {set = 0, cur = 1, ['end'] = 2}
 function seek(f, whence, offset)
+	whence = assert(whences[whence], 'invalid whence %s', whence)
 	local ok = C.SetFilePointerEx(f.handle, offset, u64buf, whence) ~= 0
 	if not ok then return check() end
 	return tonumber(u64buf[0])
@@ -399,24 +369,6 @@ function file.size(f)
 	local ok = C.GetFileSizeEx(f.handle, u64buf) ~= 0
 	if not ok then return check() end
 	return tonumber(u64buf[0])
-end
-
---mkdir/rmdir ----------------------------------------------------------------
-
-cdef[[
-BOOL CreateDirectoryW(
-	LPCWSTR lpPathName,
-	LPSECURITY_ATTRIBUTES lpSecurityAttributes
-);
-BOOL RemoveDirectoryW(LPCWSTR lpPathName);
-]]
-
-function mkdir(path)
-	return check(C.CreateDirectoryW(wcs(path), nil) ~= 0)
-end
-
-function rmdir(path)
-	return check(C.RemoveDirectoryW(wcs(path)) ~= 0)
 end
 
 --directory listing ----------------------------------------------------------
@@ -503,12 +455,28 @@ function fs.dir(path)
 	return dir.next, dir
 end
 
---current directory ----------------------------------------------------------
+--filesystem operations ------------------------------------------------------
 
 cdef[[
+BOOL CreateDirectoryW(LPCWSTR, LPSECURITY_ATTRIBUTES);
+BOOL RemoveDirectoryW(LPCWSTR);
 int SetCurrentDirectoryW(LPCWSTR lpPathName);
 DWORD GetCurrentDirectoryW(DWORD nBufferLength, LPWSTR lpBuffer);
+BOOL DeleteFileW(LPCWSTR lpFileName);
+BOOL MoveFileExW(
+	LPCWSTR lpExistingFileName,
+	LPCWSTR lpNewFileName,
+	DWORD   dwFlags
+);
 ]]
+
+function mkdir(path)
+	return check(C.CreateDirectoryW(wcs(path), nil) ~= 0)
+end
+
+function rmdir(path)
+	return check(C.RemoveDirectoryW(wcs(path)) ~= 0)
+end
 
 function chdir(path)
 	return check(C.SetCurrentDirectoryW(wcs(path)) ~= 0)
@@ -522,4 +490,28 @@ function getcwd()
 	if sz == 0 then return check() end
 	return mbs(buf, sz)
 end
+
+function fs.remove(path)
+	return check(C.DeleteFileW(wcs(path)) ~= 0)
+end
+
+local move_flags = {
+	--MOVEFILE_*
+	replace_existing      =  0x1,
+	copy_allowed          =  0x2,
+	delay_until_reboot    =  0x4,
+	fail_if_not_trackable = 0x20,
+	write_through         =  0x8,
+}
+
+local default_move_opt = {'replace_existing', 'write_through'} --posix
+function fs.move(oldpath, newpath, opt)
+	return check(C.MoveFileExW(
+		wcs(oldpath),
+		wcs(newpath, nil, wbuf),
+		flags(opt or default_move_opt, move_flags)
+	) ~= 0)
+end
+
+--file attributes ------------------------------------------------------------
 

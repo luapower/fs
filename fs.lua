@@ -17,17 +17,11 @@ require(assert(backends[ffi.os], 'unsupported platform'))
 local fs = backend.fs
 local file = backend.file
 
---TODO: add buffered I/O here or do it in a separate module?
-file.read = backend.read
-file.write = backend.write
-
-local whences = {set = 0, cur = 1, ['end'] = 2}
 function file.seek(f, whence, offset)
 	if tonumber(whence) and not offset then
 		whence, offset = 'cur', tonumber(whence)
 	end
-	whence = assert(whences[whence or 'cur'], 'invalid whence %s', whence)
-	return backend.seek(f, whence, offset or 0)
+	return backend.seek(f, whence or 'cur', offset or 0)
 end
 
 --TODO: implement recursive mkdir/rmdir

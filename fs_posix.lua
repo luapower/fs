@@ -30,9 +30,15 @@ typedef unsigned int mode_t;
 typedef size_t time_t;
 ]]
 
---open/close/remove/move -----------------------------------------------------
+--open/close -----------------------------------------------------------------
 
-o_flags = {
+cdef[[
+int open(const char *pathname, int flags, mode_t mode);
+int close(int fd);
+]]
+
+--TODO: sort out differences between Linux and OSX here
+local o_flags = {
 	accmode   = 00000003,
 	rdonly    = 00000000,
 	wronly    = 00000001,
@@ -53,31 +59,109 @@ o_flags = {
 	sync      = 04000000,
 }
 
-cdef[[
-int open(const char *pathname, int flags, mode_t mode);
+local str_opt = {
+	r = {flags = 'rdonly'},
+	w = {flags = 'wronly'},
+	['r+'] = {flags = 'rdwr'},
+	['w+'] = {flags = 'rdwr'},
+}
+
+--expose this because the frontend will set its metatype on it at the end.
+file_ct = ffi.typeof[[
+	struct {
+		int fd;
+	};
 ]]
 
 function fs.open(path, opt)
-	--
+	opt = opt or 'r'
+	if type(opt) == 'string' then
+		opt = assert(str_opt[opt], 'invalid option %s', opt)
+	end
+	local flags = flags(opt.flags or 'rdonly', o_flags)
+	local mode = opt.mode or 666
+	local fd = C.open(path, flags, mode)
+	if fd == -1 then return check() end
+	return ffi.gc(file_ct(fd), file.close)
 end
 
-fs.remove = os.remove
-
-fs.move = os.rename
-
---mkdir/rmdir ----------------------------------------------------------------
-
-cdef[[
-int rmdir(const char *pathname);
-int mkdir(const char *pathname, mode_t mode);
-]]
-
-function mkdir(path, perms)
-	return check(C.mkdir(path, perms or 0x1ff) == 0)
+function file.closed(f)
+	return f.fd ~= -1
 end
 
-function rmdir(path)
-	return check(C.rmdir(path) == 0)
+function file.close(f)
+	if f:closed() then return end
+	local ok = C.close(f.fd) == 0
+	if not ok then return check() end
+	f.fd = -1
+	ffi.gc(f, nil)
+	return true
+end
+
+--i/o ------------------------------------------------------------------------
+
+cdef(string.format([[
+struct stat {
+	dev_t     st_dev;     /* ID of device containing file */
+	ino_t     st_ino;     /* inode number */
+	mode_t    st_mode;    /* protection */
+	nlink_t   st_nlink;   /* number of hard links */
+	uid_t     st_uid;     /* user ID of owner */
+	gid_t     st_gid;     /* group ID of owner */
+	dev_t     st_rdev;    /* device ID (if special file) */
+	off_t     st_size;    /* total size, in bytes */
+	blksize_t st_blksize; /* blocksize for file system I/O */
+	blkcnt_t  st_blocks;  /* number of 512B blocks allocated */
+	time_t    st_atime;   /* time of last access */
+	time_t    st_mtime;   /* time of last modification */
+	time_t    st_ctime;   /* time of last status change */
+};
+ssize_t read(int fd, void *buf, size_t count);
+ssize_t write(int fd, const void *buf, size_t count);
+int fsync(int fd);
+int64_t lseek(int fd, off_t offset, int whence) asm("lseek%s");
+int ftruncate(int fd, off_t length);
+int fstat(int fd, struct stat *buf);
+]], linux and '64' or ''))
+
+function file.read(f, buf, sz)
+	local szread = C.read(f.fd, buf, sz)
+	if szread == -1 then return check() end
+	return szread
+end
+
+function file.write(f, buf, sz)
+	local szwr = C.write(f.fd, buf, sz)
+	if szwr == -1 then return check() end
+	return szwr
+end
+
+function file.flush(f)
+	return check(C.fsync(f.fd) == 0)
+end
+
+local whences = {set = 0, cur = 1, ['end'] = 2, data = ?, hole = ?}
+function seek(f, whence, offset)
+	whence = assert(whences[whence], 'invalid whence %s', whence)
+	local offs = C.lseek(f.fd, offset, whence)
+	if offs == -1 then return check(false) end
+	return offs
+end
+
+function file.truncate(f)
+	local offset, err, errcode = seek(f, 'cur', 0)
+	if not offset then return offset, err, errcode end
+	return check(C.ftruncate(f.fd, offset) == 0)
+end
+
+function file.size(f)
+	local offset, err, errcode  = seek(f, 'cur', 0)
+	if not offset then return offset, err, errcode end
+	local offset1, err1, errcode1 = seek(f, 'end', 0)
+	local offset, err, errcode = seek(f, 'set', offset)
+	if not offset then return offset, err, errcode end
+	if not offset1 then return offset1, err1, errcode1 end
+	return offset1 + 1
 end
 
 --directory listing ----------------------------------------------------------
@@ -154,12 +238,24 @@ function fs.dir(path)
 	return dir.next, dir
 end
 
---current directory ----------------------------------------------------------
+--filesystem operations ------------------------------------------------------
 
 cdef[[
+int mkdir(const char *pathname, mode_t mode);
+int rmdir(const char *pathname);
 int chdir(const char *path);
 char *getcwd(char *buf, size_t size);
+int unlink(const char *pathname);
+int rename(const char *oldpath, const char *newpath);
 ]]
+
+function mkdir(path, perms)
+	return check(C.mkdir(path, perms or 0x1ff) == 0)
+end
+
+function rmdir(path)
+	return check(C.rmdir(path) == 0)
+end
 
 function chdir(path)
 	return check(C.chdir(path) == 0)
@@ -179,6 +275,14 @@ function getcwd()
 		end
 		return str(buf, sz)
 	end
+end
+
+function fs.remove(path)
+	return check(C.unlink(path) == 0)
+end
+
+function fs.move(oldpath, newpath)
+	return check(C.rename(oldpath, newpath) == 0)
 end
 
 --file attributes ------------------------------------------------------------
@@ -328,19 +432,3 @@ end
 function get_symlink_target(link_path)
 
 end
-
---file replacing -------------------------------------------------------------
-
-replace = os.rename
-
---text/binary mode -----------------------------------------------------------
-
-function set_textmode(f, mode)
-	return true, 'binary'
-end
-
-function textmode(f, mode)
-	local mode = assert(mode:match'^[bt]', 'invalid mode')
-	return settextmode(f, mode)
-end
-file.textmode = texmode

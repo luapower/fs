@@ -55,7 +55,7 @@ char *strerror(int errnum);
 function check_errno(ret, errno)
 	if ret then return ret end
 	errno = errno or ffi.errno()
-	return nil, str(C.strerror(errno)), errno
+	return ret, str(C.strerror(errno)), errno
 end
 
 function assert_checker(check)

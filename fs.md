@@ -15,24 +15,29 @@ Filesystem API for Windows, Linux and OSX. Features:
 
 -------------------------------------------- -----------------------------------------------
 __file objects__
-`fs.open(path | fd, mode) -> f`
-`fs.file(f) -> f`
-`fs.isfile(f) -> true|false`
-`f:fileno() -> fd`
-`f:handle() -> HANDLE`
+`fs.open(path[, mode|opt]) -> f`
 `f:close()`
-`f:textmode('b'|'t')`
-__streams__
-`f:read(...) -> readlen`
-`f:write(...)`
-`f:seek([whence] [, offset]) -> pos`
-`f:size([newsize]) -> size`
-`f:eof() -> true|false`
+`f:closed() -> true|false`
+`fs.isfile(f) -> true|false`
+__file i/o__
+`f:read(buf, len) -> readlen`
+`f:write(buf, len) -> writelen`
 `f:flush()`
-`f:lines() -> iter() -> s`
-`f:setvbuf(mode[, size])`
+`f:seek([whence] [, offset]) -> pos`
+`f:truncate()`
+`f:size() -> size`
+__filesystem operations__
+`fs.dir() -> dir, next
+`dir:next() -> name`
+`dir:close()`
+`dir:closed() -> true|false`
+`fs.mkdir(path[, perms])`
+`fs.rmdir(path)`
+`fs.pwd([newpwd]) -> path`
+`fs.remove(path)`
+`fs.move(path, newpath[, opt])`
 __file attributes__
-`fs.type(path) -> type`
+`fs.filetype(path) -> type`
 `fs.drive(path) -> drive_letter`
 `fs.dev(path) -> device_path`
 `fs.inode(path) -> inode`
@@ -48,17 +53,6 @@ __file attributes__
 `fs.blocks(path) -> n`
 `fs.blksize(path) -> size`
 `fs.touch(path[, atime[, mtime]])`
-__directories__
-`fs.dir() -> dir, next
-`dir:next() -> name|nil`
-`dir:close()`
-`dir:closed() -> true|false`
-`fs.pwd([newpwd]) -> path`
-`fs.mkdir(path[, perms])`
-`fs.rmdir(path)`
-__locking__
-`fs.lock(path)`
-`fs.unlock(path)`
 __symlinks & hardlinks__
 `fs.hardlink(target, path)`
 `fs.symlink(target, path)`
