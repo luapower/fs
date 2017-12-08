@@ -446,21 +446,45 @@ end
 
 --path manipulation ----------------------------------------------------------
 
-function fs.dirsep()
-	return '/'
-end
+fs.dir_sep = '/'
 
 --common paths ---------------------------------------------------------------
 
 function fs.homedir()
-
+	return os.getenv'HOME'
 end
 
 function fs.tmpdir()
-
+	return os.getenv'TMPDIR'
 end
 
-function fs.exedir()
-
+function fs.appdir(appname)
+	local dir = fs.homedir()
+	return dir and string.format('%s/.%s', dir, appname)
 end
 
+if osx then
+
+	cdef'_NSGetExecutablePath(char* buf, uint32_t* bufsize);'
+	cdef[[
+	pid_t getpid(void);
+	int proc_pidpath(int pid, void* buffer, uint32_t buffersize);
+	]]
+
+	function fs.exedir()
+		local pid = C.getpid()
+		if pid == -1 then return check() end
+		local proc = ffi.load'proc'
+		local buf, sz = cbuf()
+		local sz = proc.proc_pidpath(pid, buf, sz)
+		if sz <= 0 then return check() end
+		return str(buf, sz)
+	end
+
+else
+
+	function fs.exedir()
+
+	end
+
+end

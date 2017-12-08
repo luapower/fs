@@ -2,6 +2,8 @@
 tagline: portable filesystem API
 ---
 
+<warn>Work in progress!</warn>
+
 ## `local fs = require'fs'`
 
 Filesystem API for Windows, Linux and OSX. Features:

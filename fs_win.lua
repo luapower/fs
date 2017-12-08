@@ -35,6 +35,7 @@ typedef const WCHAR*   LPCWSTR;
 typedef BOOL           *LPBOOL;
 typedef int64_t        LONGLONG;
 typedef LONGLONG       LARGE_INTEGER, *PLARGE_INTEGER;
+typedef void*          HMODULE;
 
 typedef struct {
 	DWORD  nLength;
@@ -268,7 +269,7 @@ end
 function file.close(f)
 	if f:closed() then return end
 	local ret = C.CloseHandle(f.handle)
-	if ret == 0 then return check() end
+	if ret == 0 then return check(false) end
 	f.handle = INVALID_HANDLE_VALUE
 	ffi.gc(f, nil)
 	return true
@@ -532,21 +533,38 @@ end
 
 --path manipulation ----------------------------------------------------------
 
-function fs.dirsep()
-	return '\\'
-end
+fs.dir_sep = '\\'
 
 --common paths ---------------------------------------------------------------
 
-function fs.homedir()
+cdef[[
+DWORD GetTempPathW(DWORD nBufferLength, LPWSTR lpBuffer);
+DWORD GetModuleFileNameW(HMODULE hModule, LPWSTR lpFilename, DWORD nSize);
+]]
 
+function fs.homedir()
+	return os.getenv'USERPROFILE'
 end
 
 function fs.tmpdir()
+	local buf, bufsz = wbuf()
+	local sz = C.GetTempPathW(bufsz, buf)
+	if sz == 0 then return check() end
+	if sz > bufsz then
+		buf, bufsz = wbuf(sz)
+		local sz = C.GetTempPathW(bufsz, buf)
+		assert(sz <= bufsz)
+		if sz == 0 then return check() end
+	end
+	return str(buf, sz-1) --strip trailing '\'
+end
 
+function fs.appdir(appname)
+	local dir = os.getenv'LOCALAPPDATA'
+	return dir and string.format('%s\\%s', dir, appname)
 end
 
 function fs.exedir()
-
+	--C.GetModuleFileNameW(nil, ...)
 end
 
