@@ -332,11 +332,7 @@ BOOL SetFilePointerEx(
 );
 
 BOOL SetEndOfFile(HANDLE hFile);
-
-BOOL GetFileSizeEx(
-  HANDLE         hFile,
-  PLARGE_INTEGER lpFileSize
-);
+BOOL GetFileSizeEx(HANDLE hFile, PLARGE_INTEGER lpFileSize);
 ]]
 
 local dwbuf = ffi.new'DWORD[1]'
@@ -499,6 +495,7 @@ BOOL MoveFileExW(
 	LPCWSTR lpNewFileName,
 	DWORD   dwFlags
 );
+BOOL DeleteFileW(LPCWSTR lpFileName);
 ]]
 
 function mkdir(path)
@@ -542,6 +539,42 @@ function fs.move(oldpath, newpath, opt)
 		wcs(newpath, nil, wbuf),
 		flags(opt or default_move_opt, move_flags)
 	) ~= 0)
+end
+
+function fs.remove(path)
+	return check(C.DeleteFileW(wcs(path)) ~= 0)
+end
+
+--symlinks & hardlinks -------------------------------------------------------
+
+cdef[[
+BOOL CreateSymbolicLinkW (
+	LPCWSTR lpSymlinkFileName,
+	LPCWSTR lpTargetFileName,
+	DWORD dwFlags
+);
+BOOL CreateHardLinkW(
+	LPCWSTR lpFileName,
+	LPCWSTR lpExistingFileName,
+	LPSECURITY_ATTRIBUTES lpSecurityAttributes
+);
+]]
+
+local SYMBOLIC_LINK_FLAG_DIRECTORY = 0x1
+
+function fs.mksymlink(link_path, target_path, is_dir)
+	local flags = is_dir and SYMBOLIC_LINK_FLAG_DIRECTORY or 0
+	return check(C.CreateSymbolicLinkW(
+		wcs(link_path),
+		wcs(target_path, nil, wbuf),
+		flags) ~= 0)
+end
+
+function fs.mkhardlink(link_path, target_path)
+	return check(C.CreateHardLinkW(
+		wcs(link_path),
+		wcs(target_path, nil, wbuf),
+		nil) ~= 0)
 end
 
 --file attributes ------------------------------------------------------------

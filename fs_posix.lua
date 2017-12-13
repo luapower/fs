@@ -250,6 +250,7 @@ function dir.type(dir)
 	local t = dir._dentry.d_type
 	if t == DT_UNKNOWN then
 		--TODO: call lstat here
+		dir._dentry.d_type = t
 	end
 	return
 			t == DT_DIR  and 'dir'
@@ -268,7 +269,6 @@ dir_ct = ffi.typeof[[
 ]]
 
 function dir_iter(path)
-	path = path or fs.pwd()
 	local dentry = C.opendir(path)
 	assert_check(dentry ~= nil)
 	local dir = dir_ct()
