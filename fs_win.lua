@@ -495,7 +495,6 @@ BOOL MoveFileExW(
 	LPCWSTR lpNewFileName,
 	DWORD   dwFlags
 );
-BOOL DeleteFileW(LPCWSTR lpFileName);
 ]]
 
 function mkdir(path)
@@ -541,10 +540,6 @@ function fs.move(oldpath, newpath, opt)
 	) ~= 0)
 end
 
-function fs.remove(path)
-	return check(C.DeleteFileW(wcs(path)) ~= 0)
-end
-
 --symlinks & hardlinks -------------------------------------------------------
 
 cdef[[
@@ -579,10 +574,6 @@ end
 
 --file attributes ------------------------------------------------------------
 
-
---path manipulation ----------------------------------------------------------
-
---
 
 --common paths ---------------------------------------------------------------
 
