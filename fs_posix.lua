@@ -214,6 +214,8 @@ dir_ct = ffi.typeof[[
 	struct {
 		DIR *_dir;
 		struct dirent* _dirent;
+		int  _dirlen;
+		char _dir[?];
 	}
 ]]
 
@@ -233,6 +235,10 @@ end
 function dir.name(dir)
 	if dir:closed() then return nil end
 	return str(dir._dentry.d_name)
+end
+
+function dir.dir(dir)
+	return str(dir._dir, dir._dirlen)
 end
 
 function dir.dir(dir)
@@ -299,7 +305,9 @@ function dir_attr(dir, attr)
 end
 
 function dir_iter(path)
-	local dir = dir_ct()
+	local dir = dir_ct(#path)
+	dir._dirlen = #path
+	ffi.copy(dir._dir, path)
 	dir._dir = C.opendir(path)
 	assert_check(dir._dir ~= nil)
 	return dir.next, dir

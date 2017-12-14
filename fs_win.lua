@@ -515,7 +515,7 @@ function dir.name(dir)
 end
 
 function dir.dir(dir)
-	error'TODO'
+	return str(dir._dir, dir._dirlen)
 end
 
 --TODO: remove last arg so that next can be called directly without arg!
@@ -546,14 +546,17 @@ dir_ct = ffi.typeof[[
 	struct {
 		HANDLE _handle;
 		WIN32_FIND_DATAW _fdata;
+		int  _dirlen;
+		char _dir[?];
 	}
 ]]
 
 function dir_iter(path)
 	assert(not path:find'[%*%?]') --no globbing allowed
-	path = path .. '\\*'
-	local dir = dir_ct()
-	local h = C.FindFirstFileW(wcs(path), dir._fdata)
+	local dir = dir_ct(#path)
+	dir._dirlen = #path
+	ffi.copy(dir._dir, path)
+	local h = C.FindFirstFileW(wcs(path .. '\\*'), dir._fdata)
 	assert_check(h ~= INVALID_HANDLE_VALUE)
 	dir._handle = h
 	return dir.next, dir
