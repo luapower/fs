@@ -63,12 +63,14 @@ __common paths__
 `fs.exedir() -> path`                             get the directory of the running executable
 ------------------------------------------------- -------------------------------------------------
 
-__NOTE:__ The `deref` arg is `true` by default, meaning that by default, symlinks are followed
-recursively and transparently when listing directories and when getting or setting file attributes.
+__NOTE:__ The `deref` arg is `true` by default, meaning that by default,
+symlinks are followed recursively and transparently when listing directories
+and when getting or setting file attributes.
 
-__NOTE:__ All functions can fail, in which case they return `nil, error_message, error_code`.
-Functions which are listed as having no return value actually return `true` for indicating success.
-Some error messages are normalized, eg. `not_found` (see full list below).
+__NOTE:__ All functions can fail, in which case they return
+`nil, error_message, error_code`. Functions which are listed as having no
+return value actually return `true` for indicating success. Some error
+messages are normalized, eg. `not_found` (see full list below).
 
 ## File attributes
 
@@ -78,7 +80,7 @@ __name__         __win__ __osx__ __linux__ __description__
 `size         `  rw      rw      rw        file size
 `atime        `  rw      rw      rw        last access time (seldom correct)
 `mtime        `  rw      rw      rw        last contents-change time
-`btime        `  rw      rw                creation ("birth") time
+`btime        `  rw      rw                creation (aka "birth") time
 `ctime        `          r       r         last metadata-or-contents-change time
 `target       `  r       r       r         symlink's target (nil if not symlink)
 `archive      `  rw                        archive bit (for backup programs)
@@ -101,9 +103,12 @@ __name__         __win__ __osx__ __linux__ __description__
 `blksize      `          r       r         block size for I/O
 `blocks       `          r       r         number of 512B blocks allocated
 
+On the table above, `r` means that the attribute is read/only and `rw` means
+that the attribute can be changed. Attributes can be queried and changed
+from different contexts via `f:attr()`, `fs.attr()` and `d:attr()`.
+
 
 ## File types
-
 
 __name__       __win__ __osx__ __linux__ __description__
 -------------- ------- ------- --------- ---------------------------------------
