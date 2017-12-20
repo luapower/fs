@@ -72,17 +72,9 @@ Some error messages are normalized, eg. `not_found` (see full list below).
 
 ## File attributes
 
--------------- ------- ------- --------- ---------------------------------------
 __name__       __win__ __osx__ __linux__ __description__
-type: file     r       r       r         file is a regular file
-type: dir      r       r       r         file is a directory
-type: symlink  r       r       r         file is a symlink
-type: dev      r                         file is a Windows device
-type: devblk           r       r         file is a block device
-type: devchr           r       r         file is a character device
-type: pipe             r       r         file is a pipe
-type: socket           r       r         file is a socket
-type: unknown          r       r         file type unknown
+-------------- ------- ------- --------- ---------------------------------------
+type           r       r       r         file type (see below)
 size           rw      rw      rw        file size
 atime          rw      rw      rw        last access time (seldom correct)
 mtime          rw      rw      rw        last contents-change time
@@ -108,7 +100,23 @@ nlink                  r       r         number of hard links
 rdev                   r       r         device id (if special file)
 blksize                r       r         block size for I/O
 blocks                 r       r         number of 512B blocks allocated
+
+
+## File types
+
+
+__name__       __win__ __osx__ __linux__ __description__
 -------------- ------- ------- --------- ---------------------------------------
+file           *       *       *         file is a regular file
+dir            *       *       *         file is a directory
+symlink        *       *       *         file is a symlink
+dev            *                         file is a Windows device
+devblk                 *       *         file is a block device
+devchr                 *       *         file is a character device
+pipe                   *       *         file is a pipe
+socket                 *       *         file is a socket
+unknown                *       *         file type unknown
+
 
 ## Normalized error messages
 
