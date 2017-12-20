@@ -141,7 +141,7 @@ Open/create a file for reading and/or writing. The second arg can be a string:
 `w+`    open and trucate or create; allow reading and writing
 ------- ------------------------------------------------------------------------
 
-... or an options table with platform-specific fields. Fields which represent
+... or an options table with platform-specific fields which represent
 OR-ed flags must be given either as `'foo bar ...'`, `{foo=true, bar=true}`
 or `{'foo', 'bar'}`, eg. `{sharing = 'read write'} sets sharing to
 `FILE_SHARE_READ | FILE_SHARE_WRITE`. All flags are documented in the code.
