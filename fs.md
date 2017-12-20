@@ -223,6 +223,8 @@ Get/set attribute(s) of open file. `attr` can be:
   * string: get the value of a single attribute.
   * table: set some attributes.
 
+__TIP__: to set the file size, use `f:attr{size =, size_opt=}`.
+
 ## Directory listing
 
 ### `fs.dir([dir], [dot_dirs]) -> d, next`
