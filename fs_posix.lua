@@ -472,8 +472,8 @@ do
 		[0xc000] = 'socket',
 		[0xa000] = 'symlink',
 		[0x8000] = 'file',
-		[0x6000] = 'devblk',
-		[0x2000] = 'devchr',
+		[0x6000] = 'blockdev',
+		[0x2000] = 'chardev',
 		[0x4000] = 'dir',
 		[0x1000] = 'pipe',
 	}
@@ -861,22 +861,22 @@ local DT_LNK     = 10
 local DT_SOCK    = 12
 
 local dt_types = {
-	dir     = DT_DIR,
-	file    = DT_REG,
-	symlink = DT_LNK,
-	devblk  = DT_BLK,
-	devchr  = DT_CHR,
-	pipe    = DT_FIFO,
-	socket  = DT_SOCK,
-	unknown = DT_UNKNOWN,
+	dir      = DT_DIR,
+	file     = DT_REG,
+	symlink  = DT_LNK,
+	blockdev = DT_BLK,
+	chardev  = DT_CHR,
+	pipe     = DT_FIFO,
+	socket   = DT_SOCK,
+	unknown  = DT_UNKNOWN,
 }
 
 local dt_names = {
 	[DT_DIR]  = 'dir',
 	[DT_REG]  = 'file',
 	[DT_LNK]  = 'symlink',
-	[DT_BLK]  = 'devblk',
-	[DT_CHR]  = 'devchr',
+	[DT_BLK]  = 'blockdev',
+	[DT_CHR]  = 'chardev',
 	[DT_FIFO] = 'pipe',
 	[DT_SOCK] = 'socket',
 	[DT_UNKNOWN] = 'unknown',

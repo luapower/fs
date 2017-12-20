@@ -72,34 +72,34 @@ Some error messages are normalized, eg. `not_found` (see full list below).
 
 ## File attributes
 
-__name__       __win__ __osx__ __linux__ __description__
--------------- ------- ------- --------- ---------------------------------------
-type           r       r       r         file type (see below)
-size           rw      rw      rw        file size
-atime          rw      rw      rw        last access time (seldom correct)
-mtime          rw      rw      rw        last contents-change time
-btime          rw      rw                creation ("birth") time
-ctime                  r       r         last metadata-or-contents-change time
-target         r       r       r         symlink's target (nil if not symlink)
-archive        rw                        archive bit (for backup programs)
-hidden         rw                        hidden bit (don't show in Explorer)
-readonly       rw                        read-only bit (can't open in write mode)
-system         rw                        system bit
-temporary      rw                        writes need not be commited to storage
-not_indexed    rw                        exclude from indexing
-sparse_file    r                         file is sparse
-reparse_point  r                         has a reparse point or is a symlink
-compressed     r                         file is compressed
-encrypted      r                         file is encrypted
-perms                  rw      rw        permissions
-uid                    rw      rw        user id
-gid                    rw      rw        group id
-dev                    r       r         device id containing the file
-inode                  r       r         inode number (int64_t)
-nlink                  r       r         number of hard links
-rdev                   r       r         device id (if special file)
-blksize                r       r         block size for I/O
-blocks                 r       r         number of 512B blocks allocated
+__name__         __win__ __osx__ __linux__ __description__
+---------------- ------- ------- --------- ---------------------------------------
+`type         `  r       r       r         file type (see below)
+`size         `  rw      rw      rw        file size
+`atime        `  rw      rw      rw        last access time (seldom correct)
+`mtime        `  rw      rw      rw        last contents-change time
+`btime        `  rw      rw                creation ("birth") time
+`ctime        `          r       r         last metadata-or-contents-change time
+`target       `  r       r       r         symlink's target (nil if not symlink)
+`archive      `  rw                        archive bit (for backup programs)
+`hidden       `  rw                        hidden bit (don't show in Explorer)
+`readonly     `  rw                        read-only bit (can't open in write mode)
+`system       `  rw                        system bit
+`temporary    `  rw                        writes need not be commited to storage
+`not_indexed  `  rw                        exclude from indexing
+`sparse_file  `  r                         file is sparse
+`reparse_point`  r                         has a reparse point or is a symlink
+`compressed   `  r                         file is compressed
+`encrypted    `  r                         file is encrypted
+`perms        `          rw      rw        permissions
+`uid          `          rw      rw        user id
+`gid          `          rw      rw        group id
+`dev          `          r       r         device id containing the file
+`inode        `          r       r         inode number (int64_t)
+`nlink        `          r       r         number of hard links
+`rdev         `          r       r         device id (if special file)
+`blksize      `          r       r         block size for I/O
+`blocks       `          r       r         number of 512B blocks allocated
 
 
 ## File types
@@ -107,25 +107,25 @@ blocks                 r       r         number of 512B blocks allocated
 
 __name__       __win__ __osx__ __linux__ __description__
 -------------- ------- ------- --------- ---------------------------------------
-file           *       *       *         file is a regular file
-dir            *       *       *         file is a directory
-symlink        *       *       *         file is a symlink
-dev            *                         file is a Windows device
-devblk                 *       *         file is a block device
-devchr                 *       *         file is a character device
-pipe                   *       *         file is a pipe
-socket                 *       *         file is a socket
-unknown                *       *         file type unknown
+`file`         *       *       *         file is a regular file
+`dir`          *       *       *         file is a directory
+`symlink`      *       *       *         file is a symlink
+`dev`          *                         file is a Windows device
+`blockdev`             *       *         file is a block device
+`chardev`              *       *         file is a character device
+`pipe`                 *       *         file is a pipe
+`socket`               *       *         file is a socket
+`unknown`              *       *         file type unknown
 
 
 ## Normalized error messages
 
 __message__          __description__
 -------------------- -----------------------------------------------------------
-not_found            file/dir/path not found
-access_denied        access denied
-already_exists       file/dir already exists
-not_empty            dir not empty (eg. for rmdir())
+`not_found`          file/dir/path not found
+`access_denied`      access denied
+`already_exists`     file/dir already exists
+`not_empty`          dir not empty (eg. for rmdir())
 -------------------- -----------------------------------------------------------
 
 ## File Objects
@@ -135,10 +135,10 @@ not_empty            dir not empty (eg. for rmdir())
 Open/create a file for reading and/or writing. The second arg can be a string:
 
 ------- ------------------------------------------------------------------------
-r       open; allow reading only
-w       open and truncate or create; allow writing only
-r+      open or create; allow reading and writing
-w+      open and trucate or create; allow reading and writing
+`r`     open; allow reading only
+`w`     open and truncate or create; allow writing only
+`r+`    open or create; allow reading and writing
+`w+`    open and trucate or create; allow reading and writing
 ------- ------------------------------------------------------------------------
 
 ... or an options table with platform-specific fields. Fields which represent
@@ -146,8 +146,8 @@ OR-ed flags must be given either as `'foo bar ...'`, `{foo=true, bar=true}`
 or `{'foo', 'bar'}`, eg. `{sharing = 'read write'} sets sharing to
 `FILE_SHARE_READ | FILE_SHARE_WRITE`. All flags are documented in the code.
 
--------------- ---------- ---------------------------- ------------------
 __field__      __OS__     __reference__                __default__
+-------------- ---------- ---------------------------- ------------------
 access         Windows    `FILE_*` and `GENERIC_*`     'read'
 sharing        Windows    `FILE_SHARE_*`               'read'
 creation       Windows    `dwCreationDisposition`      'open_existing'
@@ -270,10 +270,10 @@ Get/set dir entry attribute(s).
 a symlink (`deref` defaults to `true`!). When `deref=true`, even the `'type'`
 attribute is the type of the target, so it will never be `'symlink'`.
 
-Some attributes are free to get (but not for symlinks when `deref=true`)
-meaning that they don't require a system call for each file, notably `type`
-on all platforms, `atime`, `mtime`, `btime`, `size` on Windows and `inode`
-on Linux and OSX.
+Some attributes for directory entries are free to get (but not for symlinks
+when `deref=true`) meaning that they don't require a system call for each
+file, notably `type` on all platforms, `atime`, `mtime`, `btime`, `size`
+on Windows and `inode` on Linux and OSX.
 
 ### `d:is(type, [deref]) -> true|false`
 
