@@ -219,7 +219,7 @@ in a table.
 ### `fs.dir([dir], [dot_dirs]) -> d, next`
 
 Directory contents iterator. `dir` defaults to `'.'`. `dot_dirs=true` means
-include `'.'` and `'..'` entries (default is to exclude them).
+include `.` and `..` entries (default is to exclude them).
 
 Usage:
 
