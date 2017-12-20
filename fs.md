@@ -120,6 +120,7 @@ unknown                *       *         file type unknown
 
 ## Normalized error messages
 
+__message__          __description__
 -------------------- -----------------------------------------------------------
 not_found            file/dir/path not found
 access_denied        access denied
