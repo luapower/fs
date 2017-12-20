@@ -126,6 +126,8 @@ __message__          __description__
 `access_denied`      access denied
 `already_exists`     file/dir already exists
 `not_empty`          dir not empty (eg. for rmdir())
+`io_error`           I/O error
+`disk_full`          no space left on device
 -------------------- -----------------------------------------------------------
 
 ## File Objects
@@ -201,10 +203,15 @@ i.e. `whence` defaults to `'cur'` and `offset` defaults to `0`.
 
 ### `f:truncate([opt])`
 
-Truncate file to current file pointer. `opt` is an optional string which can
-contain any combination of the words `fallocate`, `emulate`, and `fail`
-(default is `'fallocate emulate'` which means using `posix_fallocate()`
-followed by `ftruncate()`).
+Truncate file to current file pointer.
+
+`opt` is an optional string for Linux which can contain any combination of
+the words `fallocate` (call `fallocate()`), `emulate` (fill the file with
+zeroes if the filesystem doesn't support `fallocate()`), and `fail` (do not
+call `ftruncate()` if `fallocate()` fails: return the error `'not_supported'`
+instead). The problem with calling `ftruncate()` if `fallocate()` fails is
+that on most filesystems that creates a sparse file, hence the `fail` option.
+The default is `'fallocate emulate'` which should never create a sparse file.
 
 ## Open file attributes
 
