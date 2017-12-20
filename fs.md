@@ -196,7 +196,8 @@ Flush buffers.
 
 ### `f:seek([whence] [, offset]) -> pos`
 
-Get/set the file pointer. Same semantics as standard `io` module seek.
+Get/set the file pointer. Same semantics as standard `io` module seek
+i.e. `whence` defaults to `'cur'` and `offset` defaults to `0`.
 
 ### `f:truncate([opt])`
 
