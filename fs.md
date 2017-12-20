@@ -210,9 +210,11 @@ followed by `ftruncate()`).
 
 ### `f:attr([attr]) -> val|t`
 
-Get/set attribute(s) of open file. `attr` is the name of an attribute for
-which the value is requested; if not given, all attributes are returned
-in a table.
+Get/set attribute(s) of open file. `attr` can be:
+
+  * nothing/nil: get the values of all attributes in a table.
+  * string: get the value of a single attribute.
+  * table: set some attributes.
 
 ## Directory listing
 
