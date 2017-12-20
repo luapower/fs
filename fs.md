@@ -143,7 +143,7 @@ Open/create a file for reading and/or writing. The second arg can be a string:
 
 ... or an options table with platform-specific fields which represent
 OR-ed flags must be given either as `'foo bar ...'`, `{foo=true, bar=true}`
-or `{'foo', 'bar'}`, eg. `{sharing = 'read write'} sets sharing to
+or `{'foo', 'bar'}`, eg. `{sharing = 'read write'}` sets sharing to
 `FILE_SHARE_READ | FILE_SHARE_WRITE`. All flags are documented in the code.
 
 __field__      __OS__     __reference__                __default__
