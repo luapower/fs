@@ -148,13 +148,13 @@ or `{'foo', 'bar'}`, eg. `{sharing = 'read write'} sets sharing to
 
 __field__      __OS__     __reference__                __default__
 -------------- ---------- ---------------------------- ------------------
-access         Windows    `FILE_*` and `GENERIC_*`     'read'
-sharing        Windows    `FILE_SHARE_*`               'read'
-creation       Windows    `dwCreationDisposition`      'open_existing'
-attrs          Windows    `FILE_ATTRIBUTE_*`           ''
-flags          Windows    `FILE_FLAG_*`                ''
-flags          Linux,OSX  `O_*`                        'rdonly'
-mode           Linux,OSX  octal or symbolic perms      '0666' i.e. 'rwx'
+`access      ` Windows    `FILE_*` and `GENERIC_*`     'read'
+`sharing     ` Windows    `FILE_SHARE_*`               'read'
+`creation    ` Windows    `dwCreationDisposition`      'open_existing'
+`attrs       ` Windows    `FILE_ATTRIBUTE_*`           ''
+`flags       ` Windows    `FILE_FLAG_*`                ''
+`flags       ` Linux,OSX  `O_*`                        'rdonly'
+`mode        ` Linux,OSX  octal or symbolic perms      '0666' i.e. 'rwx'
 -------------- ---------- ---------------------------- ------------------
 
 ### `f:close()`
