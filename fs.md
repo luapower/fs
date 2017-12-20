@@ -236,8 +236,8 @@ end
 Always include the `if not name` condition when iterating. The iterator
 doesn't raise any errors. Instead it returns `false, err, errcode` as the
 last iteration when encountering an error. Initial errors from calling
-`fs.dir()` (eg. `'not_found'`) are passed to the iterator also, so `d:next()`
-must be called at least once to see them.
+`fs.dir()` (eg. `'not_found'`) are passed to the iterator also, so the
+iterator must be called at least once to see them.
 
 ### `d:next() -> name, d | false, err, errcode | nil`
 
