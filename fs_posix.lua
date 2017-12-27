@@ -874,7 +874,7 @@ if linux then
 elseif osx then
 	cdef'int getpagesize();'
 end
-mmap.pagesize = linux and C.__getpagesize or C.getpagesize
+fs.pagesize = linux and C.__getpagesize or C.getpagesize
 
 cdef[[
 int shm_open(const char *name, int oflag, mode_t mode);
@@ -1036,7 +1036,7 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 		unlink = unlink, protect = protect}
 end
 
-function mmap.protect(addr, size, access)
+function fs.protect(addr, size, access)
 	local write, exec = parse_access(access or 'x')
 	local protect = protect_bits(write, exec)
 	checkz(C.mprotect(addr, size, protect))
