@@ -8,6 +8,8 @@ local ffi = require'ffi'
 local bit = require'bit'
 local path = require'path'
 
+local min, max, floor = math.min, math.max, math.floor
+
 local C = ffi.C
 
 local backend = setmetatable({}, {__index = _G})
@@ -122,7 +124,7 @@ local function table_flags(t, masks, strict)
 		if type(k) == 'string' and v then --flags as table keys: {flag->true}
 			flag = k
 		elseif type(k) == 'number'
-			and math.floor(k) == k
+			and floor(k) == k
 			and type(v) == 'string'
 		then --flags as array: {flag1,...}
 			flag = v
@@ -226,7 +228,7 @@ function file.buffered_read(f, ctype, bufsize)
 					return rsz
 				end
 			end
-			local n = math.min(sz, len)
+			local n = min(sz, len)
 			ffi.copy(ffi.cast(ptr_ct, dst) + rsz, buf + ofs, n)
 			ofs = ofs + n
 			len = len - n
@@ -573,7 +575,7 @@ end
 function protect(map, offset, size)
 	local offset = offset or 0
 	assert(offset >= 0 and offset < map.size, 'offset out of bounds')
-	local size = math.min(size or map.size, map.size - offset)
+	local size = min(size or map.size, map.size - offset)
 	assert(size >= 0, 'negative size')
 	local addr = ffi.cast('const char*', map.addr) + offset
 	fs.protect(addr, size)
@@ -733,7 +735,7 @@ function vfile.read(f, buf, sz)
 	if f._closed then
 		return nil, 'access_denied'
 	end
-	sz = math.min(math.max(0, sz), math.max(0, f.size - f.offset))
+	sz = min(max(0, sz), max(0, f.size - f.offset))
 	ffi.copy(buf, f.buffer + f.offset, sz)
 	f.offset = f.offset + sz
 	return sz
@@ -746,7 +748,7 @@ function vfile.write(f, buf, sz)
 	if f.mode ~= 'w' then
 		return nil, 'access_denied'
 	end
-	sz = math.min(math.max(0, sz), math.max(0, f.size - f.offset))
+	sz = min(max(0, sz), max(0, f.size - f.offset))
 	ffi.copy(f.buffer + f.offset, buf, sz)
 	f.offset = f.offset + sz
 	return sz
