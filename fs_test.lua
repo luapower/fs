@@ -90,12 +90,34 @@ function test.open_dir()
 end
 
 function test.wrap_file() --indirectly tests wrap_fd() and wrap_handle()
-	local F = io.open('fs_test_wrap_file', 'w')
+	local name = 'fs_test_wrap_file'
+	os.remove(name)
+	local F = io.open(name, 'w')
 	F:write'hello'
 	F:flush()
 	local f = fs.wrap_file(F)
 	assert(f:attr'size' == 5)
 	F:close()
+	os.remove(name)
+end
+
+--pipes ----------------------------------------------------------------------
+
+function test.pipe() --I/O test in proc_test.lua
+	local rf, wf = assert(fs.pipe())
+	rf:close()
+	wf:close()
+end
+
+function test.named_pipe() --I/O test in proc_test.lua
+	local opt = 'rw' --'rw single_instance'
+	local name = ffi.abi'win' and [[\\.\pipe\fs_test_pipe]] or 'fs_test_pipe'
+	local p1 = assert(fs.pipe(name, opt))
+	local p2 = assert(fs.pipe(name, opt))
+	print(p1.handle)
+	print(p2.handle)
+	p1:close()
+	p2:close()
 end
 
 --i/o ------------------------------------------------------------------------
@@ -316,7 +338,11 @@ function test.remove_not_empty()
 end
 
 function test.remove_file()
-	--TODO:
+	local name = 'fs_test_remove_file'
+	os.remove(name)
+	assert(io.open(name, 'w')):close()
+	assert(fs.remove(name))
+	assert(not io.open(name, 'r'))
 end
 
 function test.cd_not_found()
@@ -587,6 +613,15 @@ function test.times_set()
 	assert(fs.remove(testfile))
 end
 
+--common paths ---------------------------------------------------------------
+
+function test.paths()
+	print('homedir', fs.homedir())
+	print('tmpdir ', fs.tmpdir())
+	print('exepath', fs.exepath())
+	print('exedir' , fs.exedir())
+end
+
 --file attributes ------------------------------------------------------------
 
 function test.attr()
@@ -649,8 +684,8 @@ function test.dir()
 	assert(not files['..']) --skipping this by default
 	assert(files['fs_test.lua'].type == 'file')
 	local t = files['fs_test.lua']
-	print(string.format('  found %d dir/file entries in pwd', n))
-	assert(found, 'fs_test.lua not found in pwd')
+	print(string.format('  found %d dir/file entries in cwd', n))
+	assert(found, 'fs_test.lua not found in cwd')
 end
 
 function test.dir_not_found()
@@ -983,7 +1018,7 @@ end
 
 --test cmdline ---------------------------------------------------------------
 
-local name = ...
+local name = 'paths' --...
 if not name or name == 'fs_test' then
 	--run all tests in the order in which they appear in the code.
 	for i,k in ipairs(test) do
