@@ -1018,7 +1018,7 @@ end
 
 --test cmdline ---------------------------------------------------------------
 
-local name = 'paths' --...
+local name = ...
 if not name or name == 'fs_test' then
 	--run all tests in the order in which they appear in the code.
 	for i,k in ipairs(test) do

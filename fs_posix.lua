@@ -410,7 +410,7 @@ if osx then
 			buf, sz = cbuf(out_sz)
 			goto again
 		end
-		return ffi.string(buf, sz)
+		return ffi.string(buf, sz):gsub('//', '/')
 	end
 
 else
