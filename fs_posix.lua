@@ -390,7 +390,7 @@ function fs.homedir()
 end
 
 function fs.tmpdir()
-	return os.getenv'TMPDIR'
+	return os.getenv'TMPDIR' or '/tmp'
 end
 
 function fs.appdir(appname)
