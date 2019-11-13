@@ -15,7 +15,7 @@ Filesystem API for Windows, Linux and OSX. Features:
 
 ## Status
 
-<warn>Memory mapping which is not finished yet!</warn>
+<warn>Memory mapping is not finished yet!</warn>
 
 ## API
 
