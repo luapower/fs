@@ -56,7 +56,9 @@ __directory listing__
 `d:attr([attr, ][deref]) -> t|val`                get/set dir entry attribute(s)
 `d:is(type, [deref]) -> true|false`               check if dir entry is of type
 __file attributes__
-`fs.attr(path, [attr, ][deref]) -> t|val`         get/set file attribute(s)
+`fs.attr(path, [deref]) -> t`                     get file attributes
+`fs.attr(path, attr, [deref]) -> val`             get file attribute
+`fs.attr(path, {attr->val}, [deref])`             set file attributes
 `fs.is(path, [type], [deref]) -> true|false`      check if file exists or is of a certain type
 __filesystem operations__
 `fs.mkdir(path, [recursive], [perms])`            make directory
@@ -375,7 +377,7 @@ Check if dir entry is of type.
 
 ## File attributes
 
-### `fs.attr(path, [attr, ][deref]) -> t|val`
+### `fs.attr(path, [deref]) -> t` <br> `fs.attr(path, attr, [deref]) -> val` <br> `fs.attr(path, {attr->val}, [deref])`
 
 Get/set a file's attribute(s) given its path in utf8.
 
