@@ -730,6 +730,7 @@ local function wrap(chmod_func, chown_func, utimes_func)
 		end
 		if t.atime or t.mtime then
 			ok, err, errno = utimes_func(arg, t.atime, t.mtime)
+			if not ok then return nil, err, errno end
 		end
 		return ok --returns nil without err if no attr was set
 	end
