@@ -909,7 +909,11 @@ int shm_open(const char *name, int oflag, mode_t mode);
 int shm_unlink(const char *name);
 ]]
 
-local librt = linux and ffi.load'rt' or C
+local librt = C
+if linux then
+	local ok, rt = pcall(ffi.load, 'rt')
+	if ok then librt = rt end
+end
 
 local function open(path, write, exec, shm)
 	local oflags = write and bit.bor(O_RDWR, O_CREAT) or O_RDONLY
