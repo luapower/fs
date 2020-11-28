@@ -128,7 +128,7 @@ local function check(ret, err)
 		local buf, bufsz = errbuf(512)
 		local sz = C.FormatMessageA(
 			FORMAT_MESSAGE_FROM_SYSTEM, nil, err, 0, buf, bufsz, nil)
-		err = sz > 0 and ffi.string(buf, sz):gsub('[\r\n]+$', '') or 'Error '..err
+		msg = sz > 0 and ffi.string(buf, sz):gsub('[\r\n]+$', '') or 'Error '..err
 	end
 	return ret, msg, err
 end
