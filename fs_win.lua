@@ -499,32 +499,12 @@ end
 --i/o ------------------------------------------------------------------------
 
 cdef[[
-typedef struct _OVERLAPPED {
-	ULONG_PTR Internal;
-	ULONG_PTR InternalHigh;
-	union {
-		struct {
-			DWORD Offset;
-			DWORD OffsetHigh;
-		};
-	  PVOID Pointer;
-	};
-	HANDLE hEvent;
-} OVERLAPPED, *LPOVERLAPPED;
-
-typedef struct _OVERLAPPED_ENTRY {
-	ULONG_PTR    lpCompletionKey;
-	LPOVERLAPPED lpOverlapped;
-	ULONG_PTR    Internal;
-	DWORD        dwNumberOfBytesTransferred;
-} OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
-
 BOOL ReadFile(
 	HANDLE       hFile,
 	LPVOID       lpBuffer,
 	DWORD        nNumberOfBytesToRead,
 	LPDWORD      lpNumberOfBytesRead,
-	LPOVERLAPPED lpOverlapped
+	void*        lpOverlapped
 );
 
 BOOL WriteFile(
@@ -532,7 +512,7 @@ BOOL WriteFile(
 	LPCVOID      lpBuffer,
 	DWORD        nNumberOfBytesToWrite,
 	LPDWORD      lpNumberOfBytesWritten,
-	LPOVERLAPPED lpOverlapped
+	void*        lpOverlapped
 );
 
 BOOL FlushFileBuffers(HANDLE hFile);
@@ -677,7 +657,7 @@ BOOL DeviceIoControl(
 	LPVOID       lpOutBuffer,
 	DWORD        nOutBufferSize,
 	LPDWORD      lpBytesReturned,
-	LPOVERLAPPED lpOverlapped
+	void*        lpOverlapped
 );
 ]]
 
