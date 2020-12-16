@@ -261,7 +261,7 @@ using the file API. Only opening modes `'r'` and `'w'` are supported.
 
 ### `f:read(buf, len) -> readlen`
 
-Read data from file.
+Read data from file. Returns (and keeps returning) 0 on EOF.
 
 ### `f:write(buf, len) -> writelen`
 
