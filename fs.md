@@ -314,7 +314,7 @@ include `.` and `..` entries (default is to exclude them).
 
 Usage:
 
-~~~{.lua}
+```lua
 for name, d in fs.dir() do
 	if not name then
 		print('error: ', d)
@@ -322,7 +322,7 @@ for name, d in fs.dir() do
 	end
 	print(d:attr'type', name)
 end
-~~~
+```
 
 Always include the `if not name` condition when iterating. The iterator
 doesn't raise any errors. Instead it returns `false, err, errcode` as the
