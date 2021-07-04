@@ -623,9 +623,10 @@ local move_bits = {
 	write_through         =  0x8, --for when copy_allowed
 }
 
---TODO: MoveFileExW is actually NOT atomic.
---Use SetFileInformationByHandle with FILE_RENAME_INFO and ReplaceIfExists
---which is atomic and also works on open handles which is even more atomic :)
+--NOTE: MoveFileExW is atomic if both files are on the same NTFS volume.
+--TODO: Alternative implementation: call SetFileInformationByHandle with
+--FILE_RENAME_INFO and ReplaceIfExists which is atomic and also works on
+--open handles which is even more atomic :)
 local default_move_opt = 'replace_existing write_through' --posix
 function fs.move(oldpath, newpath, opt)
 	return check(C.MoveFileExW(
