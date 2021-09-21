@@ -108,7 +108,7 @@ function fs.open(path, opt)
 	local mode = parse_perms(opt.perms)
 	local fd = C.open(path, flags, mode)
 	if fd == -1 then return check() end
-	return ffi.gc(file_ct(fd), file.close)
+	return file_ct(fd)
 end
 
 function file.closed(f)
@@ -119,7 +119,6 @@ function file.close(f)
 	if f:closed() then return end
 	local ok = C.close(f.fd) == 0
 	f.fd = -1 --ignore failure
-	ffi.gc(f, nil)
 	return check(ok)
 end
 
@@ -163,8 +162,8 @@ function fs.pipe(path, mode)
 			return check()
 		end
 		return
-			ffi.gc(fs.wrap_fd(fds[0]), file.close),
-			ffi.gc(fs.wrap_fd(fds[1]), file.close)
+			fs.wrap_fd(fds[0])
+			fs.wrap_fd(fds[1])
 	end
 end
 
@@ -175,8 +174,6 @@ cdef'FILE *fdopen(int fd, const char *mode);'
 function file.stream(f, mode)
 	local fs = C.fdopen(f.fd, mode)
 	if fs == nil then return check() end
-	ffi.gc(f, nil) --fclose() will close the handle
-	ffi.gc(fs, stream.close)
 	return fs
 end
 
@@ -196,7 +193,7 @@ function file.read(f, buf, sz)
 end
 
 function file.write(f, buf, sz)
-	local szwr = C.write(f.fd, buf, sz)
+	local szwr = C.write(f.fd, buf, sz or #buf)
 	if szwr == -1 then return check() end
 	return tonumber(szwr)
 end
@@ -790,7 +787,6 @@ function dir.close(dir)
 	if dir:closed() then return end
 	local ok = C.closedir(dir._dirp) == 0
 	dir._dirp = nil --ignore failure, prevent double-close
-	ffi.gc(dir, nil)
 	return check(ok)
 end
 

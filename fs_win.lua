@@ -109,6 +109,7 @@ local error_classes = {
 	[0x091] = 'not_empty', --ERROR_DIR_NOT_EMPTY, RemoveDirectoryW
 	[0x0b7] = 'already_exists', --ERROR_ALREADY_EXISTS, CreateDirectoryW
 	[0x10B] = 'not_found', --ERROR_DIRECTORY, FindFirstFileW
+	[  109] = 'broken_pipe', --ERROR_BROKEN_PIPE, ReadFile
 
 	--TODO: mmap
 	[0x0008] = 'file_too_short', --readonly file too short
@@ -303,6 +304,7 @@ local attr_bits = {
 local flag_bits = {
 	--FILE_FLAG_*
 	write_through        = 0x80000000,
+	async                = 0x40000000, --overlapped
 	overlapped           = 0x40000000,
 	no_buffering         = 0x20000000,
 	random_access        = 0x10000000,
@@ -321,7 +323,7 @@ local str_opt = {
 		creation = 'open_existing',
 		flags = 'backup_semantics'},
 	w = {
-		access = 'write file_read_attributes',
+		access = 'write',
 		creation = 'create_always',
 		flags = 'backup_semantics'},
 	['r+'] = {
@@ -342,22 +344,33 @@ struct file_t {
 ]]
 file_ct = ffi.typeof'struct file_t'
 
+local function sec_attr(inheritable)
+	if not inheritable then
+		return nil
+	end
+	local sa = ffi.new'SECURITY_ATTRIBUTES'
+	sa.nLength = ffi.sizeof(sa)
+	sa.bInheritHandle = true
+	return sa
+end
+
 function fs.open(path, opt)
 	opt = opt or 'r'
 	if type(opt) == 'string' then
 		opt = assert(str_opt[opt], 'invalid option %s', opt)
 	end
-	local access   = flags(opt.access or 'read', access_bits)
-	local sharing  = flags(opt.sharing or 'read', sharing_bits)
-	local creation = flags(opt.creation or 'open_existing', creation_bits)
-	local attrbits = flags(opt.attrs, attr_bits)
+	local access   = flags(opt.access or 'read', access_bits, nil, true)
+	local sharing  = flags(opt.sharing or 'read', sharing_bits, nil, true)
+	local creation = flags(opt.creation or 'open_existing', creation_bits, nil, true)
+	local attrbits = flags(opt.attrs, attr_bits, nil, true)
 	attrbits = attrbits == 0 and FILE_ATTRIBUTE_NORMAL or attrbits
 	local flagbits = flags(opt.flags, flag_bits)
 	local attflags = bit.bor(attrbits, flagbits)
+	local sa = sec_attr(opt.inheritable)
 	local h = C.CreateFileW(
-		wcs(path), access, sharing, nil, creation, attflags, nil)
+		wcs(path), access, sharing, sa, creation, attflags, nil)
 	if h == INVALID_HANDLE_VALUE then return check() end
-	return ffi.gc(file_ct(h), file.close)
+	return file_ct(h)
 end
 
 function file.closed(f)
@@ -369,7 +382,6 @@ function file.close(f)
 	local ret = C.CloseHandle(f.handle)
 	if ret == 0 then return check(false) end
 	f.handle = INVALID_HANDLE_VALUE
-	ffi.gc(f, nil)
 	return true
 end
 
@@ -399,6 +411,13 @@ function fs.wrap_file(file)
 	return fs.wrap_fd(fd)
 end
 
+local HANDLE_FLAG_INHERIT = 1
+
+function file.set_inheritable(file, inheritable)
+	assert(check(C.SetHandleInformation(
+		file.handle, HANDLE_FLAG_INHERIT, inheritable and 1 or 0) ~= 0))
+end
+
 --pipes ----------------------------------------------------------------------
 
 cdef[[
@@ -423,12 +442,9 @@ HANDLE CreateNamedPipeW(
   DWORD                 nDefaultTimeOut,
   LPSECURITY_ATTRIBUTES lpSecurityAttributes
 );
+
+DWORD GetCurrentThreadId();
 ]]
-
-local HANDLE_FLAG_INHERIT = 1
-
-local access = {
-}
 
 --NOTE: FILE_FLAG_FIRST_PIPE_INSTANCE == WRITE_OWNER wtf?
 local pipe_flag_bits = update({
@@ -437,44 +453,93 @@ local pipe_flag_bits = update({
 	rw              = 0x00000003, --PIPE_ACCESS_DUPLEX
 	single_instance = 0x00080000, --FILE_FLAG_FIRST_PIPE_INSTANCE
 	write_through   = 0x80000000, --FILE_FLAG_WRITE_THROUGH
+	async           = 0x40000000, --FILE_FLAG_OVERLAPPED
 	overlapped      = 0x40000000, --FILE_FLAG_OVERLAPPED
 	write_dac       = 0x00040000, --WRITE_DAC
 	write_owner     = 0x00080000, --WRITE_OWNER
 	system_security = 0x01000000, --ACCESS_SYSTEM_SECURITY
 }, flag_bits)
 
+local serial = 0
+
 function fs.pipe(name, opt)
-	local sa = ffi.new'SECURITY_ATTRIBUTES'
-	sa.nLength = ffi.sizeof(sa)
-	sa.bInheritHandle = true
-	local hs = ffi.new'HANDLE[2]'
 	if type(name) == 'table' then
 		name, opt = name.name, name
 	end
 	opt = opt or {}
 	if name then --named pipe
+
 		local h = C.CreateNamedPipeW(
-			wcs(name),
-			flags(opt, pipe_flag_bits, 0, true),
+			wcs([[\\.\pipe\]]..name),
+			flags(opt, pipe_flag_bits),
 			0, --nothing interesting here
 			opt.max_instances or 255,
 			opt.write_buffer_size or 8192,
 			opt.read_buffer_size or 8192,
-			opt.timeout or 0,
-			sa)
+			(opt.timeout or 0) * 1000,
+			sec_attr(opt.inheritable))
 		if h == INVALID_HANDLE_VALUE then
 			return check()
 		end
-		return ffi.gc(fs.wrap_handle(h), file.close)
+		return fs.wrap_handle(h)
+
 	else --unnamed pipe, return both ends
-		if C.CreatePipe(hs, hs+1, sa, 0) == 0 then
-			return check()
+
+		--overlapped anon pipe, must emulate it, see:
+		--  https://stackoverflow.com/questions/60645/overlapped-i-o-on-anonymous-pipe
+		if opt.async or opt.read_async or opt.write_async then
+
+			local sock = require'sock'
+
+			serial = (serial + 1) % 0xffffffff
+			local name = string.format('LuaPipe.%08x.%08x',
+				C.GetCurrentThreadId(), serial)
+
+			local r_async       = opt.read_async   or opt.async
+			local w_async       = opt.write_async  or opt.async
+			local r_inheritable = opt.read_inheritable  or opt.inheritable
+			local w_inheritable = opt.write_inheritable or opt.inheritable
+
+			local rf, err, errno = fs.pipe(name, {
+				r = true,
+				async = r_async,
+				inheritable = r_inheritable,
+				max_instances = 1,
+				timeout = opt.timeout or 120,
+			})
+			if not rf then
+				return nil, err, errno
+			end
+
+			local wf, err, errno = fs.open([[\\.\pipe\]]..name, {
+				access = 'generic_write',
+				creation = 'open_existing',
+				sharing = '',
+				flags = w_async and 'async' or nil,
+				inheritable = w_inheritable,
+			})
+			if not wf then
+				rf:close()
+				return nil, err, errno
+			end
+
+			if r_async then sock._make_async(rf) end
+			if w_async then sock._make_async(wf) end
+
+			return rf, wf
+
+		else --non-overlapped anon pipe, use native CreatePipe().
+
+			local sa = sec_attr(opt.inheritable)
+			local hs = ffi.new'HANDLE[2]'
+			if C.CreatePipe(hs, hs+1, sa, 0) == 0 then
+				return check()
+			end
+			local rf = fs.wrap_handle(hs[0])
+			local wf = fs.wrap_handle(hs[1])
+			return rf, wf
+
 		end
-		C.SetHandleInformation(hs[0], HANDLE_FLAG_INHERIT, 0)
-		C.SetHandleInformation(hs[1], HANDLE_FLAG_INHERIT, 0)
-		local rf = ffi.gc(fs.wrap_handle(hs[0]), file.close)
-		local wf = ffi.gc(fs.wrap_handle(hs[1]), file.close)
-		return rf, wf
 	end
 end
 
@@ -482,7 +547,7 @@ end
 
 cdef[[
 FILE *_fdopen(int fd, const char *mode);
-int _open_osfhandle (HANDLE osfhandle, int flags);
+int _open_osfhandle(HANDLE osfhandle, int flags);
 ]]
 
 function file.stream(f, mode)
@@ -491,8 +556,6 @@ function file.stream(f, mode)
 	if fd == -1 then return check_errno() end
 	local fs = C._fdopen(fd, mode)
 	if fs == nil then return check_errno() end
-	ffi.gc(f, nil) --fclose() will close the handle
-	ffi.gc(fs, stream.close)
 	return fs
 end
 
@@ -525,6 +588,25 @@ BOOL SetFilePointerEx(
 );
 ]]
 
+local function read_overlapped(f, o, buf, sz)
+	local ok = C.ReadFile(f.handle, buf, sz, nil, o) ~= 0
+	return ok
+end
+
+local function write_overlapped(f, o, buf, sz)
+	return C.WriteFile(f.handle, buf, sz, nil, o) ~= 0
+end
+
+function file.read_async(f, buf, sz, expires)
+	local sock = require'sock'
+	return sock._file_async_read(f, read_overlapped, buf, sz, expires)
+end
+
+function file.write_async(f, buf, sz, expires)
+	local sock = require'sock'
+	return sock._file_async_write(f, write_overlapped, buf, sz, expires)
+end
+
 local dwbuf = ffi.new'DWORD[1]'
 
 function file.read(f, buf, sz)
@@ -534,7 +616,7 @@ function file.read(f, buf, sz)
 end
 
 function file.write(f, buf, sz)
-	local ok = C.WriteFile(f.handle, buf, sz, dwbuf, nil) ~= 0
+	local ok = C.WriteFile(f.handle, buf, sz or #buf, dwbuf, nil) ~= 0
 	if not ok then return check() end
 	return dwbuf[0]
 end
@@ -632,7 +714,7 @@ function fs.move(oldpath, newpath, opt)
 	return check(C.MoveFileExW(
 		wcs(oldpath),
 		wcs(newpath, nil, wbuf),
-		flags(opt or default_move_opt, move_bits)
+		flags(opt or default_move_opt, move_bits, nil, true)
 	) ~= 0)
 end
 
@@ -920,7 +1002,7 @@ local changeable_attr_bits = {
 }
 local function set_attrbits(cur_bits, t)
 	cur_bits = cur_bits == FILE_ATTRIBUTE_NORMAL and 0 or cur_bits
-	local bits = flags(t, changeable_attr_bits, cur_bits, false)
+	local bits = flags(t, changeable_attr_bits, cur_bits)
 	return bits == 0 and FILE_ATTRIBUTE_NORMAL or bits
 end
 
@@ -1134,7 +1216,6 @@ function dir.close(dir)
 	if dir:closed() then return end
 	local ok = C.FindClose(dir._handle) ~= 0
 	dir._handle = INVALID_HANDLE_VALUE --ignore failure, prevent double-close
-	ffi.gc(dir, nil)
 	return check(ok)
 end
 

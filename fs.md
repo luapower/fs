@@ -38,7 +38,7 @@ __memory streams__
 `fs.open_buffer(buf, [size], [mode]) -> f`        create a memory stream
 __file i/o__
 `f:read(buf, len) -> readlen`                     read data from file
-`f:write(buf, len) -> writelen`                   write data to file
+`f:write(s | buf,len) -> writelen`                write data to file
 `f:flush()`                                       flush buffers
 `f:seek([whence] [, offset]) -> pos`              get/set the file pointer
 `f:truncate([opt])`                               truncate file to current file pointer
@@ -263,7 +263,7 @@ using the file API. Only opening modes `'r'` and `'w'` are supported.
 
 Read data from file. Returns (and keeps returning) 0 on EOF.
 
-### `f:write(buf, len) -> writelen`
+### `f:write(s | buf,len) -> writelen`
 
 Write data to file.
 

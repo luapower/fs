@@ -42,7 +42,7 @@ function test.open_already_exists_file()
 	assert(f:close())
 	local f, err = fs.open(testfile,
 		win and {
-			access = 'file_write',
+			access = 'write',
 			creation = 'create_new',
 			flags = 'backup_semantics'
 		} or {
@@ -59,7 +59,7 @@ function test.open_already_exists_dir()
 	assert(fs.mkdir(testfile))
 	local f, err = fs.open(testfile,
 		win and {
-			access = 'file_write',
+			access = 'write',
 			creation = 'create_new',
 			flags = 'backup_semantics'
 		} or {
