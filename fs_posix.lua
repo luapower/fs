@@ -162,7 +162,7 @@ function fs.pipe(path, mode)
 			return check()
 		end
 		return
-			fs.wrap_fd(fds[0])
+			fs.wrap_fd(fds[0]),
 			fs.wrap_fd(fds[1])
 	end
 end
@@ -187,12 +187,13 @@ int64_t lseek(int fd, int64_t offset, int whence) asm("lseek%s");
 ]], linux and '64' or ''))
 
 function file.read(f, buf, sz)
+	assert(sz > 0)
 	local szread = C.read(f.fd, buf, sz)
 	if szread == -1 then return check() end
 	return tonumber(szread)
 end
 
-function file.write(f, buf, sz)
+function file._write(f, buf, sz)
 	local szwr = C.write(f.fd, buf, sz or #buf)
 	if szwr == -1 then return check() end
 	return tonumber(szwr)
@@ -875,9 +876,9 @@ local dt_names = {
 function dir_attr_get(dir, attr)
 	if attr == 'type' and dir._dentry.d_type == DT_UNKNOWN then
 		--some filesystems (eg. VFAT) require this extra call to get the type.
-		local type, err, errcode = lstat(dir:path(), 'type')
+		local type, err, errno = lstat(dir:path(), 'type')
 		if not type then
-			return false, nil, err, errcode
+			return false, nil, err, errno
 		end
 		local dt = dt_types[type]
 		dir._dentry.d_type = dt --cache it
@@ -958,24 +959,24 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 
 	local fd, close
 	if type(file) == 'string' then
-		local errmsg, errcode
-		fd, errmsg, errcode = open(file, write, exec)
-		if not fd then return nil, errmsg, errcode end
+		local errmsg, errno
+		fd, errmsg, errno = open(file, write, exec)
+		if not fd then return nil, errmsg, errno end
 	elseif tagname then
 		tagname = '/'..tagname
-		local errmsg, errcode
-		fd, errmsg, errcode = open(tagname, write, exec, true)
-		if not fd then return nil, errmsg, errcode end
+		local errmsg, errno
+		fd, errmsg, errno = open(tagname, write, exec, true)
+		if not fd then return nil, errmsg, errno end
 	end
 	local f = fs.wrap_fd(fd)
 
 	--emulate Windows behavior for missing size and size mismatches.
 	if file then
 		if not size then --if size not given, assume entire file
-			local filesize, errmsg, errcode = f:attr'size'
+			local filesize, errmsg, errno = f:attr'size'
 			if not filesize then
 				if close then close() end
-				return nil, errmsg, errcode
+				return nil, errmsg, errno
 			end
 			--32bit OSX allows mapping on 0-sized files, dunno why
 			if filesize == 0 then
@@ -986,22 +987,22 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 		elseif write then --if writable file too short, extend it
 			local filesize = f:attr'size'
 			if filesize < offset + size then
-				local ok, err, errcode = f:seek(offset + size)
+				local ok, err, errno = f:seek(offset + size)
 				if not ok then
 					if close then close() end
-					return nil, errmsg, errcode
+					return nil, errmsg, errno
 				end
-				local ok, errmsg, errcode = f:truncate()
+				local ok, errmsg, errno = f:truncate()
 				if not ok then
 					if close then close() end
-					return nil, errmsg, errcode
+					return nil, errmsg, errno
 				end
 			end
 		else --if read/only file too short
-			local filesize, errmsg, errcode = mmap.filesize(fd)
+			local filesize, errmsg, errno = mmap.filesize(fd)
 			if not filesize then
 				if close then close() end
-				return nil, errmsg, errcode
+				return nil, errmsg, errno
 			end
 			if filesize < offset + size then
 				return nil, 'file_too_short'

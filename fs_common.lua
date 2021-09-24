@@ -75,14 +75,14 @@ cdef'char *strerror(int errnum);'
 local error_classes = {
 	[2] = 'not_found', --ENOENT, _open_osfhandle(), _fdopen(), open(), mkdir(),
 	                   --rmdir(), opendir(), rename(), unlink()
-	[5] = 'io_error', --EIO, readlink()
+	[5] = 'io_error', --EIO, readlink(), read()
 	[17] = 'already_exists', --EEXIST, open(), mkdir()
 	[20] = 'not_found', --ENOTDIR, opendir()
 	--[21] = 'access_denied', --EISDIR, unlink()
-	[linux and 39 or osx and 66 or ''] = 'not_empty',
-		--ENOTEMPTY, rmdir()
+	[linux and 39 or osx and 66 or ''] = 'not_empty', --ENOTEMPTY, rmdir()
 	[28] = 'disk_full', --ENOSPC: fallocate()
 	[linux and 95 or ''] = 'not_supported', --EOPNOTSUPP: fallocate()
+	[linux and 32 or ''] = 'eof' --EPIPE: write()
 
 	--[[ --TODO: mmap
 	local ENOENT = 2
@@ -268,14 +268,48 @@ end
 --i/o ------------------------------------------------------------------------
 
 local whences = {set = 0, cur = 1, ['end'] = 2} --FILE_*
-function file.seek(f, whence, offset)
+function file:seek(whence, offset)
 	if tonumber(whence) and not offset then --middle arg missing
 		whence, offset = 'cur', tonumber(whence)
 	end
 	whence = whence or 'cur'
 	offset = tonumber(offset or 0)
 	whence = assert(whences[whence], 'invalid whence: "%s"', whence)
-	return f._seek(f, whence, offset)
+	return self:_seek(whence, offset)
+end
+
+function file:write(buf, sz, expires)
+	sz = sz or #buf
+	assert(sz > 0)
+	local sz0 = sz
+	while true do
+		local len, err, errcode = self:_write(buf, sz, expires)
+		if len == sz then
+			break
+		elseif not len then --short write
+			return nil, err, errcode, sz0 - sz
+		end
+		assert(len > 0)
+		if type(buf) == 'string' then --only make pointer on the rare second iteration.
+			buf = ffi.cast(char_ptr_ct, buf)
+		end
+		buf = buf + len
+		sz  = sz  - len
+	end
+	return true
+end
+
+function file:readn(buf, sz, expires)
+	local sz0 = sz
+	while sz > 0 do
+		local len, err, errcode = self:read(buf, sz, expires)
+		if not len or len == 0 then --short read
+			return nil, err, errcode, sz0 - sz
+		end
+		buf = buf + len
+		sz  = sz  - len
+	end
+	return true
 end
 
 --truncate/getsize/setsize ---------------------------------------------------

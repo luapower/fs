@@ -38,7 +38,8 @@ __memory streams__
 `fs.open_buffer(buf, [size], [mode]) -> f`        create a memory stream
 __file i/o__
 `f:read(buf, len) -> readlen`                     read data from file
-`f:write(s | buf,len) -> writelen`                write data to file
+`f:readn(buf, n) -> true`                         read exactly n bytes
+`f:write(s | buf,len) -> true`                    write data to file
 `f:flush()`                                       flush buffers
 `f:seek([whence] [, offset]) -> pos`              get/set the file pointer
 `f:truncate([opt])`                               truncate file to current file pointer
@@ -219,8 +220,7 @@ Check if `f` is a file object.
 ### `fs.pipe() -> rf, wf`
 
 Create an anonymous (unnamed) pipe. Return two files corresponding to the
-read and write ends of the pipe. These files can be used to redirect
-stdin, stdout and stderr in [proc].exec().
+read and write ends of the pipe.
 
 ### `fs.pipe({path=,<opt>=} | path[,options]) -> pf`
 
@@ -261,11 +261,17 @@ using the file API. Only opening modes `'r'` and `'w'` are supported.
 
 ### `f:read(buf, len) -> readlen`
 
-Read data from file. Returns (and keeps returning) 0 on EOF.
+Read data from file. Returns (and keeps returning) 0 on EOF or broken pipe.
 
-### `f:write(s | buf,len) -> writelen`
+### `f:readn(buf, len) -> true`
+
+Read data from file until `len` is read.
+Partial reads are signaled with `nil, 'eof', nil, readlen`.
+
+### `f:write(s | buf,len) -> true`
 
 Write data to file.
+Partial writes are signaled with `nil, 'eof', errcode, writelen`.
 
 ### `f:flush()`
 
@@ -590,6 +596,13 @@ is aligned to a page boundary. It can be used to align pointers.
 Get the current page size. Memory will always be allocated in multiples
 of this size and file offsets must be aligned to this size too.
 
+## Async I/O
+
+Named pipes can be opened with `async = true` option which opens them
+in async mode, which uses the [sock] scheduler to multiplex the I/O
+which means all I/O then must be performed inside sock threads.
+In this mode, the `read()` and `write()` methods take an additional `expires`
+arg that behaves just like with sockets.
 
 ## Programming Notes
 
@@ -621,6 +634,7 @@ on network mounts (NFS, Samba).
 ### Async disk I/O
 
 Async disk I/O is a complete afterthought on all major Operating Systems.
-If your app is I/O-bound just bite the bullet and make a thread pool.
+If your app is disk-bound just bite the bullet and make a thread pool.
 Read [Arvid Norberg's article](https://blog.libtorrent.org/2012/10/asynchronous-disk-io/)
 for more info.
+

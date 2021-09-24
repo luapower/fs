@@ -109,7 +109,7 @@ local error_classes = {
 	[0x091] = 'not_empty', --ERROR_DIR_NOT_EMPTY, RemoveDirectoryW
 	[0x0b7] = 'already_exists', --ERROR_ALREADY_EXISTS, CreateDirectoryW
 	[0x10B] = 'not_found', --ERROR_DIRECTORY, FindFirstFileW
-	[  109] = 'broken_pipe', --ERROR_BROKEN_PIPE, ReadFile
+	[  109] = 'eof', --ERROR_BROKEN_PIPE ReadFile, WriteFile
 
 	--TODO: mmap
 	[0x0008] = 'file_too_short', --readonly file too short
@@ -301,11 +301,11 @@ local attr_bits = {
 	--virtual     = 0x00010000, --reserved
 }
 
+local FILE_FLAG_OVERLAPPED = 0x40000000
+
 local flag_bits = {
 	--FILE_FLAG_*
 	write_through        = 0x80000000,
-	async                = 0x40000000, --overlapped
-	overlapped           = 0x40000000,
 	no_buffering         = 0x20000000,
 	random_access        = 0x10000000,
 	sequential_scan      = 0x08000000,
@@ -340,6 +340,9 @@ local str_opt = {
 cdef[[
 struct file_t {
 	HANDLE handle;
+	bool read_async;
+	bool write_async;
+	bool is_pipe_end;
 };
 ]]
 file_ct = ffi.typeof'struct file_t'
@@ -359,18 +362,24 @@ function fs.open(path, opt)
 	if type(opt) == 'string' then
 		opt = assert(str_opt[opt], 'invalid option %s', opt)
 	end
+	local async = opt.async or opt.read_async or opt.write_async
+	assert(not async or opt.is_pipe_end, 'only pipes can be async')
 	local access   = flags(opt.access or 'read', access_bits, nil, true)
 	local sharing  = flags(opt.sharing or 'read', sharing_bits, nil, true)
 	local creation = flags(opt.creation or 'open_existing', creation_bits, nil, true)
 	local attrbits = flags(opt.attrs, attr_bits, nil, true)
 	attrbits = attrbits == 0 and FILE_ATTRIBUTE_NORMAL or attrbits
 	local flagbits = flags(opt.flags, flag_bits)
-	local attflags = bit.bor(attrbits, flagbits)
+	local attflags = bit.bor(attrbits, flagbits, async and FILE_FLAG_OVERLAPPED or 0)
 	local sa = sec_attr(opt.inheritable)
 	local h = C.CreateFileW(
 		wcs(path), access, sharing, sa, creation, attflags, nil)
 	if h == INVALID_HANDLE_VALUE then return check() end
-	return file_ct(h)
+	local f = fs.wrap_handle(h,
+		opt.async or opt.read_async,
+		opt.async or opt.write_async,
+		opt.is_pipe_end)
+	return f
 end
 
 function file.closed(f)
@@ -385,8 +394,21 @@ function file.close(f)
 	return true
 end
 
-function fs.wrap_handle(h)
-	return file_ct(h)
+function fs.wrap_handle(h, read_async, write_async, is_pipe_end)
+
+	local f = file_ct(h,
+		read_async or false,
+		write_async or false,
+		is_pipe_end or false)
+
+	if read_async or write_async then
+		if not fs._make_async then
+			fs._make_async = require'sock'._make_async
+		end
+		fs._make_async(f)
+	end
+
+	return f
 end
 
 cdef[[
@@ -406,8 +428,8 @@ function fs.fileno(file)
 end
 
 function fs.wrap_file(file)
-	local fd, err, errno = fs.fileno(file)
-	if not fd then return nil, err, errno end
+	local fd, err, errcode = fs.fileno(file)
+	if not fd then return nil, err, errcode end
 	return fs.wrap_fd(fd)
 end
 
@@ -453,8 +475,6 @@ local pipe_flag_bits = update({
 	rw              = 0x00000003, --PIPE_ACCESS_DUPLEX
 	single_instance = 0x00080000, --FILE_FLAG_FIRST_PIPE_INSTANCE
 	write_through   = 0x80000000, --FILE_FLAG_WRITE_THROUGH
-	async           = 0x40000000, --FILE_FLAG_OVERLAPPED
-	overlapped      = 0x40000000, --FILE_FLAG_OVERLAPPED
 	write_dac       = 0x00040000, --WRITE_DAC
 	write_owner     = 0x00080000, --WRITE_OWNER
 	system_security = 0x01000000, --ACCESS_SYSTEM_SECURITY
@@ -467,64 +487,65 @@ function fs.pipe(name, opt)
 		name, opt = name.name, name
 	end
 	opt = opt or {}
+	local async = opt.async or opt.read_async or opt.write_async
+
 	if name then --named pipe
 
 		local h = C.CreateNamedPipeW(
 			wcs([[\\.\pipe\]]..name),
-			flags(opt, pipe_flag_bits),
+			flags(opt, pipe_flag_bits, async and FILE_FLAG_OVERLAPPED or 0),
 			0, --nothing interesting here
 			opt.max_instances or 255,
 			opt.write_buffer_size or 8192,
 			opt.read_buffer_size or 8192,
 			(opt.timeout or 0) * 1000,
 			sec_attr(opt.inheritable))
+
 		if h == INVALID_HANDLE_VALUE then
 			return check()
 		end
-		return fs.wrap_handle(h)
+
+		local f = fs.wrap_handle(h,
+				opt.async or opt.read_async,
+				opt.async or opt.write_async,
+				true
+			)
+
+		return f
 
 	else --unnamed pipe, return both ends
 
 		--overlapped anon pipe, must emulate it, see:
 		--  https://stackoverflow.com/questions/60645/overlapped-i-o-on-anonymous-pipe
-		if opt.async or opt.read_async or opt.write_async then
-
-			local sock = require'sock'
+		if async then
 
 			serial = (serial + 1) % 0xffffffff
 			local name = string.format('LuaPipe.%08x.%08x',
 				C.GetCurrentThreadId(), serial)
 
-			local r_async       = opt.read_async   or opt.async
-			local w_async       = opt.write_async  or opt.async
-			local r_inheritable = opt.read_inheritable  or opt.inheritable
-			local w_inheritable = opt.write_inheritable or opt.inheritable
-
-			local rf, err, errno = fs.pipe(name, {
+			local rf, err, errcode = fs.pipe(name, {
 				r = true,
-				async = r_async,
-				inheritable = r_inheritable,
+				read_async = opt.read_async or opt.async,
+				inheritable = opt.read_inheritable  or opt.inheritable,
 				max_instances = 1,
 				timeout = opt.timeout or 120,
 			})
 			if not rf then
-				return nil, err, errno
+				return nil, err, errcode
 			end
 
-			local wf, err, errno = fs.open([[\\.\pipe\]]..name, {
+			local wf, err, errcode = fs.open([[\\.\pipe\]]..name, {
 				access = 'generic_write',
 				creation = 'open_existing',
 				sharing = '',
-				flags = w_async and 'async' or nil,
-				inheritable = w_inheritable,
+				write_async = opt.write_async or opt.async,
+				inheritable = opt.write_inheritable or opt.inheritable,
+				is_pipe_end = true,
 			})
 			if not wf then
 				rf:close()
-				return nil, err, errno
+				return nil, err, errcode
 			end
-
-			if r_async then sock._make_async(rf) end
-			if w_async then sock._make_async(wf) end
 
 			return rf, wf
 
@@ -535,8 +556,8 @@ function fs.pipe(name, opt)
 			if C.CreatePipe(hs, hs+1, sa, 0) == 0 then
 				return check()
 			end
-			local rf = fs.wrap_handle(hs[0])
-			local wf = fs.wrap_handle(hs[1])
+			local rf = fs.wrap_handle(hs[0], nil, nil, true)
+			local wf = fs.wrap_handle(hs[1], nil, nil, true)
 			return rf, wf
 
 		end
@@ -589,36 +610,41 @@ BOOL SetFilePointerEx(
 ]]
 
 local function read_overlapped(f, o, buf, sz)
-	local ok = C.ReadFile(f.handle, buf, sz, nil, o) ~= 0
-	return ok
+	return C.ReadFile(f.handle, buf, sz, nil, o) ~= 0
 end
 
 local function write_overlapped(f, o, buf, sz)
 	return C.WriteFile(f.handle, buf, sz, nil, o) ~= 0
 end
 
-function file.read_async(f, buf, sz, expires)
-	local sock = require'sock'
-	return sock._file_async_read(f, read_overlapped, buf, sz, expires)
-end
-
-function file.write_async(f, buf, sz, expires)
-	local sock = require'sock'
-	return sock._file_async_write(f, write_overlapped, buf, sz, expires)
-end
-
 local dwbuf = ffi.new'DWORD[1]'
 
-function file.read(f, buf, sz)
-	local ok = C.ReadFile(f.handle, buf, sz, dwbuf, nil) ~= 0
-	if not ok then return check() end
-	return dwbuf[0]
+local function mask_eof(ret, err, errcode)
+	if ret then return ret end
+	if err == 'eof' then return 0 end --pipes do that
+	return nil, err, errcode
+end
+function file.read(f, buf, sz, expires)
+	assert(sz > 0)
+	if f.read_async then
+		local sock = require'sock'
+		return mask_eof(sock._file_async_read(f, read_overlapped, buf, sz, expires))
+	else
+		local ok = C.ReadFile(f.handle, buf, sz, dwbuf, nil) ~= 0
+		if not ok then return mask_eof(check()) end
+		return dwbuf[0]
+	end
 end
 
-function file.write(f, buf, sz)
-	local ok = C.WriteFile(f.handle, buf, sz or #buf, dwbuf, nil) ~= 0
-	if not ok then return check() end
-	return dwbuf[0]
+function file._write(f, buf, sz, expires)
+	if f.write_async then
+		local sock = require'sock'
+		return sock._file_async_write(f, write_overlapped, buf, sz, expires)
+	else
+		local ok = C.WriteFile(f.handle, buf, sz or #buf, dwbuf, nil) ~= 0
+		if not ok then return check() end
+		return dwbuf[0]
+	end
 end
 
 function file.flush(f)
@@ -748,10 +774,11 @@ local SYMBOLIC_LINK_FLAG_DIRECTORY = 0x1
 
 function fs.mksymlink(link_path, target_path, is_dir)
 	local flags = is_dir and SYMBOLIC_LINK_FLAG_DIRECTORY or 0
+	print(link_path, target_path)
 	return check(C.CreateSymbolicLinkW(
 		wcs(link_path),
 		wcs(target_path, nil, wbuf),
-		flags) ~= 0)
+		flags) == 1)
 end
 
 function fs.mkhardlink(link_path, target_path)
@@ -1413,8 +1440,8 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 			sharing = 'read write delete',
 			creation = write and 'open_always' or 'open_existing',
 		}
-		local f, err, errno = fs.open(file, open_opt)
-		if not f then return nil, err, errno end
+		local f, err, errcode = fs.open(file, open_opt)
+		if not f then return nil, err, errcode end
 	else
 		assert(fs.isfile(file), 'invalid file argument')
 	end
