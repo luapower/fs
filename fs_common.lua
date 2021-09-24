@@ -280,7 +280,6 @@ end
 
 function file:write(buf, sz, expires)
 	sz = sz or #buf
-	assert(sz > 0)
 	local sz0 = sz
 	while true do
 		local len, err, errcode = self:_write(buf, sz, expires)

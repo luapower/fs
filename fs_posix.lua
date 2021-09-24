@@ -187,7 +187,7 @@ int64_t lseek(int fd, int64_t offset, int whence) asm("lseek%s");
 ]], linux and '64' or ''))
 
 function file.read(f, buf, sz)
-	assert(sz > 0)
+	assert(sz > 0) --because it returns 0 for EOF
 	local szread = C.read(f.fd, buf, sz)
 	if szread == -1 then return check() end
 	return tonumber(szread)

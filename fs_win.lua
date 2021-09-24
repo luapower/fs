@@ -625,7 +625,7 @@ local function mask_eof(ret, err, errcode)
 	return nil, err, errcode
 end
 function file.read(f, buf, sz, expires)
-	assert(sz > 0)
+	assert(sz > 0) --because it returns 0 for EOF
 	if f.read_async then
 		local sock = require'sock'
 		return mask_eof(sock._file_async_read(f, read_overlapped, buf, sz, expires))
