@@ -280,7 +280,7 @@ end
 
 function file:write(buf, sz, expires)
 	sz = sz or #buf
-	if sz == 0 then return true end
+	if sz == 0 then return true end --mask out null writes
 	local sz0 = sz
 	while true do
 		local len, err, errcode = self:_write(buf, sz, expires)
