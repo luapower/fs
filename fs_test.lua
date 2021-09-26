@@ -927,8 +927,8 @@ end
 
 function test.filesize_disk_full()
 	local file = zerosize_file()
-	local size, errmsg, errcode = mmap.filesize(file, 1024^4)
-	assert(not size and errcode == 'disk_full')
+	local size, errmsg = mmap.filesize(file, 1024^4)
+	assert(not size and errmsg == 'disk_full')
 	local actual_size = mmap.filesize(file)
 	assert(actual_size == 0) --file has the same size on error
 end
@@ -944,48 +944,48 @@ function test.invalid_offset()
 end
 
 function test.invalid_address()
-	local map, errmsg, errcode = mmap.map{size = mmap.pagesize() * 1,
+	local map, errmsg = mmap.map{size = mmap.pagesize() * 1,
 		addr = ffi.os == 'Windows' and mmap.pagesize()  --TODO: not robust
 			or ffi.cast('uintptr_t', -mmap.pagesize()),  --TODO: not robust
 	}
-	assert(not map and errcode == 'out_of_mem')
+	assert(not map and errmsg == 'out_of_mem')
 end
 
 function test.size_too_large()
 	local size = 1024^3 * (ffi.abi'32bit' and 3 or 1024^3)
-	local map, errmsg, errcode = mmap.map{access = 'w', size = size}
-	assert(not map and errcode == 'out_of_mem')
+	local map, errmsg = mmap.map{access = 'w', size = size}
+	assert(not map and errmsg == 'out_of_mem')
 end
 
 function test.readonly_not_found()
-	local map, errmsg, errcode = mmap.map{file = 'askdfask8920349zjk'}
-	assert(not map and errcode == 'not_found')
+	local map, errmsg = mmap.map{file = 'askdfask8920349zjk'}
+	assert(not map and errmsg == 'not_found')
 end
 
 function test.readonly_too_short()
-	local map, errmsg, errcode = mmap.map{file = 'mmap.lua', size = 1024*1000}
-	assert(not map and errcode == 'file_too_short')
+	local map, errmsg = mmap.map{file = 'mmap.lua', size = 1024*1000}
+	assert(not map and errmsg == 'file_too_short')
 end
 
 function test.readonly_too_short_zero()
-	local map, errmsg, errcode = mmap.map{file = zerosize_file()}
-	assert(not map and errcode == 'file_too_short')
+	local map, errmsg = mmap.map{file = zerosize_file()}
+	assert(not map and errmsg == 'file_too_short')
 end
 
 function test.write_too_short_zero()
-	local map, errmsg, errcode = mmap.map{file = zerosize_file(), access = 'w'}
-	assert(not map and errcode == 'file_too_short')
+	local map, errmsg = mmap.map{file = zerosize_file(), access = 'w'}
+	assert(not map and errmsg == 'file_too_short')
 end
 
 function test.map_disk_full()
 	--TODO: how to test for disk full on 32bit? need a < 3G partition
 	if ffi.abi'32bit' then return end
-	local map, errmsg, errcode = mmap.map{
+	local map, errmsg = mmap.map{
 		file = file,
 		size = 1024^4,
 		access = 'w',
 	}
-	assert(not map and errcode == 'disk_full')
+	assert(not map and errmsg == 'disk_full')
 end
 ]]
 

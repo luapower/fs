@@ -141,6 +141,10 @@ function fs.wrap_file(file)
 	return fs.wrap_fd(fd)
 end
 
+function file.set_inheritable(file, inheritable)
+	--nothing to do.
+end
+
 --pipes ----------------------------------------------------------------------
 
 cdef[[
@@ -269,16 +273,14 @@ else
 
 end
 
-local ENOSPC = 28 --no space left on device
-
 function file_setsize(f, size, opt)
 	opt = opt or 'fallocate emulate' --emulate Windows behavior
 	if opt:find'fallocate' then
-		local cursize, err, errno = file_getsize(f)
-		if not cursize then return nil, err, errno end
-		local ok, err, errno = fallocate(f.fd, size, opt:find'emulate')
+		local cursize, err = file_getsize(f)
+		if not cursize then return nil, err end
+		local ok, err = fallocate(f.fd, size, opt:find'emulate')
 		if not ok then
-			if errno == ENOSPC then
+			if err == 'disk_full' then
 				--when fallocate() fails because disk is full, a file is still
 				--created filling up the entire disk, so shrink back the file
 				--to its original size. this is courtesy: we don't check to see
@@ -286,7 +288,7 @@ function file_setsize(f, size, opt)
 				C.ftruncate(fd, cursize)
 			end
 			if opt:find'fail' then
-				return nil, err, errno
+				return nil, err
 			end
 		end
 	end
@@ -294,8 +296,8 @@ function file_setsize(f, size, opt)
 end
 
 function file.truncate(f, opt)
-	local size, err, errno = f:seek()
-	if not size then return nil, err, errno end
+	local size, err = f:seek()
+	if not size then return nil, err end
 	return file_setsize(f, size, opt)
 end
 
@@ -657,8 +659,8 @@ elseif osx then
 		return function(arg, atime, mtime)
 			tv = tv or tv_ct()
 			if not atime or not mtime then
-				local t, err, errno = stat_func(arg)
-				if not t then return nil, err, errno end
+				local t, err = stat_func(arg)
+				if not t then return nil, err end
 				atime = atime or t.atime
 				mtime = mtime or t.mtime
 			end
@@ -684,8 +686,8 @@ local function wrap(chmod_func, stat_func)
 		local cur_perms
 		local _, is_rel = parse_perms(perms)
 		if is_rel then
-			local cur_perms, err, errno = stat_func(arg, 'perms')
-			if not cur_perms then return nil, err, errno end
+			local cur_perms, err = stat_func(arg, 'perms')
+			if not cur_perms then return nil, err end
 		end
 		local mode = parse_perms(perms, cur_perms)
 		return chmod_func(f.fd, mode) == 0
@@ -719,18 +721,18 @@ end
 
 local function wrap(chmod_func, chown_func, utimes_func)
 	return function(arg, t)
-		local ok, err, errno
+		local ok, err
 		if t.perms then
-			ok, err, errno = chmod_func(arg, t.perms)
-			if not ok then return nil, err, errno end
+			ok, err = chmod_func(arg, t.perms)
+			if not ok then return nil, err end
 		end
 		if t.uid or t.gid then
-			ok, err, errno = chown_func(arg, t.uid, t.gid)
-			if not ok then return nil, err, errno end
+			ok, err = chown_func(arg, t.uid, t.gid)
+			if not ok then return nil, err end
 		end
 		if t.atime or t.mtime then
-			ok, err, errno = utimes_func(arg, t.atime, t.mtime)
-			if not ok then return nil, err, errno end
+			ok, err = utimes_func(arg, t.atime, t.mtime)
+			if not ok then return nil, err end
 		end
 		return ok --returns nil without err if no attr was set
 	end
@@ -876,9 +878,9 @@ local dt_names = {
 function dir_attr_get(dir, attr)
 	if attr == 'type' and dir._dentry.d_type == DT_UNKNOWN then
 		--some filesystems (eg. VFAT) require this extra call to get the type.
-		local type, err, errno = lstat(dir:path(), 'type')
+		local type, err = lstat(dir:path(), 'type')
 		if not type then
-			return false, nil, err, errno
+			return false, nil, err
 		end
 		local dt = dt_types[type]
 		dir._dentry.d_type = dt --cache it
@@ -959,24 +961,24 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 
 	local fd, close
 	if type(file) == 'string' then
-		local errmsg, errno
-		fd, errmsg, errno = open(file, write, exec)
-		if not fd then return nil, errmsg, errno end
+		local errmsg
+		fd, errmsg = open(file, write, exec)
+		if not fd then return nil, errmsg end
 	elseif tagname then
 		tagname = '/'..tagname
-		local errmsg, errno
-		fd, errmsg, errno = open(tagname, write, exec, true)
-		if not fd then return nil, errmsg, errno end
+		local errmsg
+		fd, errmsg = open(tagname, write, exec, true)
+		if not fd then return nil, errmsg end
 	end
 	local f = fs.wrap_fd(fd)
 
 	--emulate Windows behavior for missing size and size mismatches.
 	if file then
 		if not size then --if size not given, assume entire file
-			local filesize, errmsg, errno = f:attr'size'
+			local filesize, errmsg = f:attr'size'
 			if not filesize then
 				if close then close() end
-				return nil, errmsg, errno
+				return nil, errmsg
 			end
 			--32bit OSX allows mapping on 0-sized files, dunno why
 			if filesize == 0 then
@@ -987,22 +989,22 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 		elseif write then --if writable file too short, extend it
 			local filesize = f:attr'size'
 			if filesize < offset + size then
-				local ok, err, errno = f:seek(offset + size)
+				local ok, err = f:seek(offset + size)
 				if not ok then
 					if close then close() end
-					return nil, errmsg, errno
+					return nil, errmsg
 				end
-				local ok, errmsg, errno = f:truncate()
+				local ok, errmsg = f:truncate()
 				if not ok then
 					if close then close() end
-					return nil, errmsg, errno
+					return nil, errmsg
 				end
 			end
 		else --if read/only file too short
-			local filesize, errmsg, errno = mmap.filesize(fd)
+			local filesize, errmsg = mmap.filesize(fd)
 			if not filesize then
 				if close then close() end
-				return nil, errmsg, errno
+				return nil, errmsg
 			end
 			if filesize < offset + size then
 				return nil, 'file_too_short'

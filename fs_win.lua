@@ -428,8 +428,8 @@ function fs.fileno(file)
 end
 
 function fs.wrap_file(file)
-	local fd, err, errcode = fs.fileno(file)
-	if not fd then return nil, err, errcode end
+	local fd, err = fs.fileno(file)
+	if not fd then return nil, err end
 	return fs.wrap_fd(fd)
 end
 
@@ -523,7 +523,7 @@ function fs.pipe(name, opt)
 			local name = string.format('LuaPipe.%08x.%08x',
 				C.GetCurrentThreadId(), serial)
 
-			local rf, err, errcode = fs.pipe(name, {
+			local rf, err = fs.pipe(name, {
 				r = true,
 				read_async = opt.read_async or opt.async,
 				inheritable = opt.read_inheritable  or opt.inheritable,
@@ -531,10 +531,10 @@ function fs.pipe(name, opt)
 				timeout = opt.timeout or 120,
 			})
 			if not rf then
-				return nil, err, errcode
+				return nil, err
 			end
 
-			local wf, err, errcode = fs.open([[\\.\pipe\]]..name, {
+			local wf, err = fs.open([[\\.\pipe\]]..name, {
 				access = 'generic_write',
 				creation = 'open_existing',
 				sharing = '',
@@ -544,20 +544,21 @@ function fs.pipe(name, opt)
 			})
 			if not wf then
 				rf:close()
-				return nil, err, errcode
+				return nil, err
 			end
 
 			return rf, wf
 
 		else --non-overlapped anon pipe, use native CreatePipe().
 
-			local sa = sec_attr(opt.inheritable)
 			local hs = ffi.new'HANDLE[2]'
-			if C.CreatePipe(hs, hs+1, sa, 0) == 0 then
+			if C.CreatePipe(hs, hs+1, nil, 0) == 0 then
 				return check()
 			end
 			local rf = fs.wrap_handle(hs[0], nil, nil, true)
 			local wf = fs.wrap_handle(hs[1], nil, nil, true)
+			if opt.inheritable or opt.read_inheritable  then rf:set_inheritable(true) end
+			if opt.inheritable or opt.write_inheritable then wf:set_inheritable(true) end
 			return rf, wf
 
 		end
@@ -619,10 +620,10 @@ end
 
 local dwbuf = ffi.new'DWORD[1]'
 
-local function mask_eof(ret, err, errcode)
+local function mask_eof(ret, err)
 	if ret then return ret end
 	if err == 'eof' then return 0 end --pipes do that
-	return nil, err, errcode
+	return nil, err
 end
 function file.read(f, buf, sz, expires)
 	assert(sz > 0) --because it returns 0 for EOF
@@ -831,8 +832,8 @@ do
 	local ERROR_MORE_DATA = 234
 
 	function readlink(path)
-		local f, err, errcode = fs.open(path, readlink_opt)
-		if not f then return nil, err, errcode end
+		local f, err = fs.open(path, readlink_opt)
+		if not f then return nil, err end
 		::again::
 		local buf = buf or REPARSE_DATA_BUFFER(sz)
 		local ok = C.DeviceIoControl(
@@ -1101,10 +1102,10 @@ local info_getters = {
 }
 
 local function file_attr_get_all(f)
-	local binfo, err, errcode = file_get_basic_info(f)
-	if not binfo then return nil, err, errcode end
-	local info, err, errcode = file_get_info(f)
-	if not info then return nil, err, errcode end
+	local binfo, err = file_get_basic_info(f)
+	if not binfo then return nil, err end
+	local info, err = file_get_info(f)
+	if not info then return nil, err end
 	local t = attrbits(binfo.FileAttributes, {})
 	for k, get in pairs(binfo_getters) do
 		t[k] = get(binfo) or nil
@@ -1121,20 +1122,20 @@ function file_attr_get(f, k)
 	end
 	local val = attrbit(0, k)
 	if val ~= nil then
-		local binfo, err, errcode = file_get_basic_info(f)
-		if not binfo then return nil, err, errcode end
+		local binfo, err = file_get_basic_info(f)
+		if not binfo then return nil, err end
 		return attrbit(binfo.FileAttributes)
 	end
 	local get = binfo_getters[k]
 	if get then
-		local binfo, err, errcode = file_get_basic_info(f)
-		if not binfo then return nil, err, errcode end
+		local binfo, err = file_get_basic_info(f)
+		if not binfo then return nil, err end
 		return get(binfo)
 	end
 	local get = info_getters[k]
 	if get then
-		local info, err, errcode = file_get_info(f)
-		if not info then return nil, err, errcode end
+		local info, err = file_get_info(f)
+		if not info then return nil, err end
 		return get(info)
 	end
 	return nil
@@ -1144,8 +1145,8 @@ local function set_filetime(ft, ts)
 	return ts and filetime(ts) or ft
 end
 function file_attr_set(f, t)
-	local binfo, err, errcode = file_get_basic_info(f)
-	if not binfo then return nil, err, errcode end
+	local binfo, err = file_get_basic_info(f)
+	if not binfo then return nil, err end
 	binfo.FileAttributes = set_attrbits(binfo.FileAttributes, t)
 	binfo.CreationTime.QuadPart   =
 		set_filetime(binfo.CreationTime.QuadPart, t.btime)
@@ -1159,12 +1160,12 @@ function file_attr_set(f, t)
 end
 
 function with_open_file(path, open_opt, func, ...)
-	local f, err, errcode = fs.open(path, open_opt)
-	if not f then return nil, err, errcode end
-	local ret, err, errcode = func(f, ...)
-	if ret == nil and err then return nil, err, errcode end
-	local ok, err, errcode = f:close()
-	if not ok then return nil, err, errcode end
+	local f, err = fs.open(path, open_opt)
+	if not f then return nil, err end
+	local ret, err = func(f, ...)
+	if ret == nil and err then return nil, err end
+	local ok, err = f:close()
+	if not ok then return nil, err end
 	return ret
 end
 
@@ -1440,8 +1441,8 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 			sharing = 'read write delete',
 			creation = write and 'open_always' or 'open_existing',
 		}
-		local f, err, errcode = fs.open(file, open_opt)
-		if not f then return nil, err, errcode end
+		local f, err = fs.open(file, open_opt)
+		if not f then return nil, err end
 	else
 		assert(fs.isfile(file), 'invalid file argument')
 	end
@@ -1509,8 +1510,8 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 	--if size wasn't given, get the file size so that the user always knows
 	--the actual size of the mapped memory.
 	if not size then
-		local filesize, errmsg, errcode = mmap.filesize(file)
-		if not filesize then return nil, errmsg, errcode end
+		local filesize, errmsg = mmap.filesize(file)
+		if not filesize then return nil, errmsg end
 		size = filesize - offset
 	end
 

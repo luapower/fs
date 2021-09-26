@@ -96,10 +96,10 @@ __NOTE:__ The `deref` arg is `true` by default, meaning that by default,
 symlinks are followed recursively and transparently where this option is
 available.
 
-__NOTE:__ All functions can fail, in which case they return
-`nil, error_message, error_code`. Functions which are listed as having no
-return value actually return `true` for indicating success. Some error
-messages are normalized, eg. `not_found` (see full list below).
+__NOTE:__ All functions raise from user error and return `nil, error`
+from outside failure. Functions which are listed as having no
+return value actually return `true` for indicating success. Recoverable
+errors are normalized and made portable, eg. `not_found` (see full list below).
 
 ## File attributes
 
@@ -271,7 +271,7 @@ Partial reads are signaled with `nil, 'eof', nil, readlen`.
 ### `f:write(s | buf,len) -> true`
 
 Write data to file.
-Partial writes are signaled with `nil, 'eof', errcode, writelen`.
+Partial writes are signaled with `nil, 'eof', writelen`.
 
 ### `f:flush()`
 
@@ -331,12 +331,12 @@ end
 ~~~
 
 Always include the `if not name` condition when iterating. The iterator
-doesn't raise any errors. Instead it returns `false, err, errcode` as the
+doesn't raise any errors. Instead it returns `false, err` as the
 last iteration when encountering an error. Initial errors from calling
 `fs.dir()` (eg. `'not_found'`) are passed to the iterator also, so the
 iterator must be called at least once to see them.
 
-### `d:next() -> name, d | false, err, errcode | nil`
+### `d:next() -> name, d | false, err | nil`
 
 Call the iterator explicitly.
 
@@ -398,7 +398,7 @@ Make directory. `perms` can be a number or a string passed to
 [unixperms.parse()][unixperms].
 
 __Note:__ In recursive mode, if the directory already exists this function
-returns `true, 'already_exists', errcode`.
+returns `true, 'already_exists'`.
 
 ### `fs.cd([path]) -> path`
 
@@ -524,13 +524,13 @@ Returns an object with the fields:
 * `addr` - a `void*` pointer to the mapped memory
 * `size` - the actual size of the memory block
 
-If the mapping fails, returns `nil,err,errcode` where `errcode` can be:
+If the mapping fails, returns `nil,err` where `err` can be:
 
 * `'no_file'` - file not found.
 * `'file_too_short'` - the file is shorter than the required size.
 * `'disk_full'` - the file cannot be extended because the disk is full.
 * `'out_of_mem'` - size or address too large or specified address in use.
-* an OS-specific numeric error code.
+* an OS-specific error message.
 
 #### NOTE:
 
@@ -549,7 +549,7 @@ or copy-on-write access results in a crash.
 Free the memory and all associated resources and close the file
 if it was opened by `fs.map()`.
 
-### `map:flush([async, ][addr, size]) -> true | nil,err,errcode`
+### `map:flush([async, ][addr, size]) -> true | nil,err`
 
 Flush (part of) the memory to disk. If the address is not aligned,
 it will be automatically aligned to the left. If `async` is true,

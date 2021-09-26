@@ -83,31 +83,11 @@ local error_classes = {
 	[28] = 'disk_full', --ENOSPC: fallocate()
 	[linux and 95 or ''] = 'not_supported', --EOPNOTSUPP: fallocate()
 	[linux and 32 or ''] = 'eof' --EPIPE: write()
-
-	--[[ --TODO: mmap
-	local ENOENT = 2
-	local ENOMEM = 12
-	local EINVAL = 22
-	local EFBIG  = 27
-	local ENOSPC = 28
-	local EDQUOT = osx and 69 or 122
-
-	local errcodes = {
-		[ENOENT] = 'not_found',
-		[ENOMEM] = 'out_of_mem',
-		[EINVAL] = 'file_too_short',
-		[EFBIG] = 'disk_full',
-		[ENOSPC] = 'disk_full',
-		[EDQUOT] = 'disk_full',
-	}
-	]]
-
-	--[[
-	[12] = 'out_of_mem', --TODO: ENOMEM: mmap
-	[22] = 'file_too_short', --TODO: EINVAL: mmap
-	[27] = 'disk_full', --TODO: EFBIG
-	[osx and 69 or 122] = 'disk_full', --TODO: EDQUOT
-	]]
+	--TODO: mmap
+	[12] = 'out_of_mem', --ENOMEM
+	[22] = 'file_too_short', --EINVAL
+	[27] = 'disk_full', --EFBIG
+	[osx and 69 or 122] = 'disk_full', --EDQUOT
 }
 
 function check_errno(ret, errno)
@@ -216,10 +196,10 @@ function file.buffered_read(f, ctype, bufsize)
 	local eof = false
 	return function(dst, sz)
 		if not dst then --skip bytes (libjpeg semantics)
-			local pos0, err, errcode = f:seek'cur'
-			if not pos0 then return nil, err, errcode end
-			local pos, err, errcode = f:seek('cur', sz)
-			if not pos then return nil, err, errcode end
+			local pos0, err = f:seek'cur'
+			if not pos0 then return nil, err end
+			local pos, err = f:seek('cur', sz)
+			if not pos then return nil, err end
 			return pos - pos0
 		end
 		local rsz = 0
@@ -229,8 +209,8 @@ function file.buffered_read(f, ctype, bufsize)
 					return 0
 				end
 				ofs = 0
-				local len1, err, errcode = f:read(buf, bufsize)
-				if not len1 then return nil, err, errcode end
+				local len1, err = f:read(buf, bufsize)
+				if not len1 then return nil, err end
 				len = len1
 				if len == 0 then
 					eof = true
@@ -283,11 +263,11 @@ function file:write(buf, sz, expires)
 	if sz == 0 then return true end --mask out null writes
 	local sz0 = sz
 	while true do
-		local len, err, errcode = self:_write(buf, sz, expires)
+		local len, err = self:_write(buf, sz, expires)
 		if len == sz then
 			break
 		elseif not len then --short write
-			return nil, err, errcode, sz0 - sz
+			return nil, err, sz0 - sz
 		end
 		assert(len > 0)
 		if type(buf) == 'string' then --only make pointer on the rare second iteration.
@@ -302,9 +282,9 @@ end
 function file:readn(buf, sz, expires)
 	local sz0 = sz
 	while sz > 0 do
-		local len, err, errcode = self:read(buf, sz, expires)
+		local len, err = self:read(buf, sz, expires)
 		if not len or len == 0 then --short read
-			return nil, err, errcode, sz0 - sz
+			return nil, err, sz0 - sz
 		end
 		buf = buf + len
 		sz  = sz  - len
@@ -318,26 +298,26 @@ end
 --to be overwritten by backends if they have better ones.
 
 function file_getsize(f)
-	local curpos, err, errcode = f:seek()
-	if not curpos then return nil, err, errcode end
-	local size, err, errcode = f:seek'end'
-	if not size then return nil, err, errcode end
+	local curpos, err = f:seek()
+	if not curpos then return nil, err end
+	local size, err = f:seek'end'
+	if not size then return nil, err end
 	if curpos ~= size then
-		local _, err, errcode = f:seek('set', curpos)
-		if not _ then return nil, err, errcode end
+		local _, err = f:seek('set', curpos)
+		if not _ then return nil, err end
 	end
 	return size
 end
 
 function file_setsize(f, newsize, opt)
-	local curpos, err, errcode = f:seek()
-	if not curpos then return nil, err, errcode end
-	local _, err, errcode = f:seek('set', newsize)
-	if not _ then return nil, err, errcode end
-	local _, err, errcode = f:truncate(opt)
-	if not _ then return nil, err, errcode end
-	local _, err, errcode = f:seek('set', curpos)
-	if not _ then return nil, err, errcode end
+	local curpos, err = f:seek()
+	if not curpos then return nil, err end
+	local _, err = f:seek('set', newsize)
+	if not _ then return nil, err end
+	local _, err = f:truncate(opt)
+	if not _ then return nil, err end
+	local _, err = f:seek('set', curpos)
+	if not _ then return nil, err end
 	return newsize
 end
 
@@ -348,22 +328,22 @@ function fs.mkdir(dir, recursive, ...)
 		dir = path.normalize(dir) --avoid creating `dir` in `dir/..` sequences
 		local t = {}
 		while true do
-			local ok, err, errcode = mkdir(dir, ...)
+			local ok, err = mkdir(dir, ...)
 			if ok then break end
 			if err ~= 'not_found' then --other problem
 				ok = err == 'already_exists' and #t == 0
-				return ok, err, errcode
+				return ok, err
 			end
 			table.insert(t, dir)
 			dir = path.dir(dir)
 			if not dir then --reached root
-				return ok, err, errcode
+				return ok, err
 			end
 		end
 		while #t > 0 do
 			local dir = table.remove(t)
-			local ok, err, errcode = mkdir(dir, ...)
-			if not ok then return ok, err, errcode end
+			local ok, err = mkdir(dir, ...)
+			if not ok then return ok, err end
 		end
 		return true
 	else
@@ -384,23 +364,23 @@ end
 --TODO: for Windows, this simple algorithm is not correct. On NTFS we
 --should be moving all files to a temp folder and deleting them from there.
 local function rmdir_recursive(dir)
-	for file, d, errcode in fs.dir(dir) do
+	for file, d in fs.dir(dir) do
 		if not file then
-			return file, d, errcode
+			return file, d
 		end
 		local filepath = path.combine(dir, file)
-		local ok, err, errcode
+		local ok, err
 		local realtype = d:attr('type', false)
 		if realtype == 'dir' then
-			ok, err, errcode = rmdir_recursive(filepath)
+			ok, err = rmdir_recursive(filepath)
 		elseif win and realtype == 'symlink' and fs.is(filepath, 'dir') then
-			ok, err, errcode = rmdir(filepath)
+			ok, err = rmdir(filepath)
 		else
-			ok, err, errcode = rmfile(filepath)
+			ok, err = rmfile(filepath)
 		end
 		if not ok then
 			d:close()
-			return ok, err, errcode
+			return ok, err
 		end
 	end
 	return rmdir(dir)
@@ -410,8 +390,8 @@ function fs.remove(dirfile, recursive)
 	if recursive then
 		--not recursing if the dir is a symlink, unless it has an endsep!
 		if not path.endsep(dirfile) then
-			local type, err, errcode = fs.attr(dirfile, 'type', false)
-			if not type then return nil, err, errcode end
+			local type, err = fs.attr(dirfile, 'type', false)
+			if not type then return nil, err end
 			if type == 'symlink' then
 				if win and fs.is(dirfile, 'dir') then
 					return rmdir(dirfile)
@@ -442,9 +422,9 @@ local function readlink_recursive(link, maxdepth)
 	if maxdepth == 0 then
 		return nil, 'not_found'
 	end
-	local target, err, errcode = readlink(link)
+	local target, err = readlink(link)
 	if not target then
-		return nil, err, errcode
+		return nil, err
 	end
 	if path.isabs(target) then
 		link = target
@@ -511,13 +491,13 @@ function fs.is(path, type, deref)
 	if type == 'symlink' then
 		deref = false
 	end
-	local ftype, err, errcode = fs.attr(path, 'type', deref)
+	local ftype, err = fs.attr(path, 'type', deref)
 	if not type and not ftype and err == 'not_found' then
 		return false
 	elseif not type and ftype then
 		return true
 	elseif not ftype then
-		return nil, err, errcode
+		return nil, err
 	else
 		return ftype == type
 	end
@@ -538,11 +518,11 @@ function fs.dir(dir, dot_dirs)
 		local next, dir = fs_dir(dir)
 		local function wrapped_next(dir)
 			while true do
-				local file, err, errcode = next(dir)
+				local file, err = next(dir)
 				if file == nil then
 					return nil
 				elseif not file then
-					return false, err, errcode
+					return false, err
 				elseif file ~= '.' and file ~= '..' then
 					return file, dir
 				end
@@ -715,14 +695,14 @@ function fs.mirror_map(f, ...)
 	end
 
 	--try to allocate a contiguous block
-	local map, err, errcode = fs.map{
+	local map, err = fs.map{
 		file = file,
 		size = size * times,
 		access = access,
 		addr = addr,
 	}
 	if not map then
-		return nil, err, errcode
+		return nil, err
 	end
 
 	--now free it so we can allocate it again in chunks all pointing at
@@ -739,7 +719,7 @@ function fs.mirror_map(f, ...)
 	end
 
 	for i = 1, times do
-		local map, err, errcode = fs.map{
+		local map, err = fs.map{
 			file = file,
 			size = size,
 			addr = addr + (i - 1) * size,
