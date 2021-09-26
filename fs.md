@@ -96,10 +96,11 @@ __NOTE:__ The `deref` arg is `true` by default, meaning that by default,
 symlinks are followed recursively and transparently where this option is
 available.
 
-__NOTE:__ All functions raise from user error and return `nil, error`
-from outside failure. Functions which are listed as having no
-return value actually return `true` for indicating success. Recoverable
-errors are normalized and made portable, eg. `not_found` (see full list below).
+__NOTE:__ All functions raise on user error and unrecoverable OS error,
+but return `nil, error` on recoverable failure. Functions which are listed
+as having no return value actually return `true` for indicating success.
+Recoverable errors are normalized and made portable, eg. `not_found`
+(see full list below).
 
 ## File attributes
 
