@@ -552,7 +552,12 @@ function fs.pipe(name, opt)
 		else --non-overlapped anon pipe, use native CreatePipe().
 
 			local hs = ffi.new'HANDLE[2]'
-			if C.CreatePipe(hs, hs+1, nil, 0) == 0 then
+			local sa = sec_attr(
+				opt.inheritable
+				or opt.read_inheritable
+				or opt.write_inheritable
+			)
+			if C.CreatePipe(hs, hs+1, sa, 0) == 0 then
 				return check()
 			end
 			local rf = fs.wrap_handle(hs[0], nil, nil, true)
