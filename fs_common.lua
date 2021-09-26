@@ -82,7 +82,7 @@ local error_classes = {
 	[linux and 39 or osx and 66 or ''] = 'not_empty', --ENOTEMPTY, rmdir()
 	[28] = 'disk_full', --ENOSPC: fallocate()
 	[linux and 95 or ''] = 'not_supported', --EOPNOTSUPP: fallocate()
-	[linux and 32 or ''] = 'eof' --EPIPE: write()
+	[linux and 32 or ''] = 'eof', --EPIPE: write()
 	--TODO: mmap
 	[12] = 'out_of_mem', --ENOMEM
 	[22] = 'file_too_short', --EINVAL
