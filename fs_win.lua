@@ -336,17 +336,6 @@ local str_opt = {
 		flags = 'backup_semantics'},
 }
 
---expose this because the frontend will set its metatype at the end.
-cdef[[
-struct file_t {
-	HANDLE handle;
-	bool read_async;
-	bool write_async;
-	bool is_pipe_end;
-};
-]]
-file_ct = ffi.typeof'struct file_t'
-
 local function sec_attr(inheritable)
 	if not inheritable then
 		return nil
@@ -387,25 +376,37 @@ function file.closed(f)
 end
 
 function file.close(f)
-	if f:closed() then return end
-	local ret = C.CloseHandle(f.handle)
-	if ret == 0 then return check(false) end
+	if f:closed() then return true end
+	if f._read_async or f._write_async then
+		local sock = require'sock'
+		local ok, err = sock._unregister(f)
+		if not ok then return nil, err end
+	end
+	local ok = C.CloseHandle(f.handle) ~= 0
+	if not ok then return check(false) end
 	f.handle = INVALID_HANDLE_VALUE
 	return true
 end
 
 function fs.wrap_handle(h, read_async, write_async, is_pipe_end)
 
-	local f = file_ct(h,
-		read_async or false,
-		write_async or false,
-		is_pipe_end or false)
+	local f = {
+		handle = h,
+		s = h, --for async use with sock
+		_read_async  = read_async  and true or false,
+		_write_async = write_async and true or false,
+		_is_pipe_end = is_pipe_end and true or false,
+		__index = file,
+	}
+	setmetatable(f, f)
 
 	if read_async or write_async then
-		if not fs._make_async then
-			fs._make_async = require'sock'._make_async
+		local sock = require'sock'
+		local ok, err = sock._register(f)
+		if not ok then
+			assert(f:close())
+			return nil, err
 		end
-		fs._make_async(f)
 	end
 
 	return f
@@ -416,10 +417,10 @@ int _fileno(struct FILE *stream);
 HANDLE _get_osfhandle(int fd);
 ]]
 
-function fs.wrap_fd(fd)
+function fs.wrap_fd(fd, ...)
 	local h = C._get_osfhandle(fd)
 	if h == nil then return check_errno() end
-	return fs.wrap_handle(h)
+	return fs.wrap_handle(h, ...)
 end
 
 function fs.fileno(file)
@@ -482,17 +483,17 @@ local pipe_flag_bits = update({
 
 local serial = 0
 
-function fs.pipe(name, opt)
-	if type(name) == 'table' then
-		name, opt = name.name, name
+function fs.pipe(path, opt)
+	if type(path) == 'table' then
+		path, opt = path.path, path
 	end
 	opt = opt or {}
 	local async = opt.async or opt.read_async or opt.write_async
 
-	if name then --named pipe
+	if path then --named pipe
 
 		local h = C.CreateNamedPipeW(
-			wcs([[\\.\pipe\]]..name),
+			wcs(path),
 			flags(opt, pipe_flag_bits, async and FILE_FLAG_OVERLAPPED or 0),
 			0, --nothing interesting here
 			opt.max_instances or 255,
@@ -505,13 +506,11 @@ function fs.pipe(name, opt)
 			return check()
 		end
 
-		local f = fs.wrap_handle(h,
+		return fs.wrap_handle(h,
 				opt.async or opt.read_async,
 				opt.async or opt.write_async,
 				true
 			)
-
-		return f
 
 	else --unnamed pipe, return both ends
 
@@ -520,21 +519,22 @@ function fs.pipe(name, opt)
 		if async then
 
 			serial = (serial + 1) % 0xffffffff
-			local name = string.format('LuaPipe.%08x.%08x',
+			local path = string.format([[\\.\pipe\LuaPipe.%08x.%08x]],
 				C.GetCurrentThreadId(), serial)
 
-			local rf, err = fs.pipe(name, {
+			local rf, err = fs.pipe{
+				path = path,
 				r = true,
 				read_async = opt.read_async or opt.async,
 				inheritable = opt.read_inheritable  or opt.inheritable,
 				max_instances = 1,
 				timeout = opt.timeout or 120,
-			})
+			}
 			if not rf then
 				return nil, err
 			end
 
-			local wf, err = fs.open([[\\.\pipe\]]..name, {
+			local wf, err = fs.open(path, {
 				access = 'generic_write',
 				creation = 'open_existing',
 				sharing = '',
@@ -632,7 +632,7 @@ local function mask_eof(ret, err)
 end
 function file.read(f, buf, sz, expires)
 	assert(sz > 0) --because it returns 0 for EOF
-	if f.read_async then
+	if f._read_async then
 		local sock = require'sock'
 		return mask_eof(sock._file_async_read(f, read_overlapped, buf, sz, expires))
 	else
@@ -643,7 +643,7 @@ function file.read(f, buf, sz, expires)
 end
 
 function file._write(f, buf, sz, expires)
-	if f.write_async then
+	if f._write_async then
 		local sock = require'sock'
 		return sock._file_async_write(f, write_overlapped, buf, sz, expires)
 	else
@@ -1246,10 +1246,11 @@ dir_ct = ffi.typeof[[
 ]]
 
 function dir.close(dir)
-	if dir:closed() then return end
+	if dir:closed() then return true end
 	local ok = C.FindClose(dir._handle) ~= 0
-	dir._handle = INVALID_HANDLE_VALUE --ignore failure, prevent double-close
-	return check(ok)
+	if not ok then return check(false) end
+	dir._handle = INVALID_HANDLE_VALUE
+	return true
 end
 
 function dir.closed(dir)

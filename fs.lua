@@ -15,8 +15,7 @@ else
 	error'platform not Windows, Linux or OSX'
 end
 
-ffi.metatype(file_ct, {__index = file})
 ffi.metatype(stream_ct, {__index = stream})
-ffi.metatype(dir_ct, {__index = dir, __gc = dir.close})
+ffi.metatype(dir_ct, {__index = dir})
 
 return fs

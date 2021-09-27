@@ -91,13 +91,40 @@ local str_opt = {
 	['w+'] = {flags = 'creat rdwr'},
 }
 
---expose this because the frontend will set its metatype on it at the end.
-cdef[[
-struct file_t {
-	int fd;
-};
-]]
-file_ct = ffi.typeof'struct file_t'
+ffi.cdef'int fcntl(int fd, int cmd, ...);'
+
+local F_GETFL     = 3
+local F_SETFL     = 4
+local O_NONBLOCK  = 0x800
+
+local function setnonblocking(f)
+	local fl = C.fcntl(f.fd, F_GETFL)
+	assert(check(C.fcntl(f.fd, F_SETFL, bit.bor(fl, O_NONBLOCK)) == 0))
+end
+
+function fs.wrap_fd(fd, read_async, write_async)
+
+	local f = {
+		fd = fd,
+		s = fd, --for async use with sock
+		_read_async  = read_async  and true or false,
+		_write_async = write_async and true or false,
+		__index = file,
+	}
+	setmetatable(f, f)
+
+	if read_async or write_async then
+		setnonblocking(f)
+		local sock = require'sock'
+		local ok, err = sock._register(f)
+		if not ok then
+			assert(f:close())
+			return nil, err
+		end
+	end
+
+	return f
+end
 
 function fs.open(path, opt)
 	opt = opt or 'r'
@@ -105,10 +132,15 @@ function fs.open(path, opt)
 		opt = assert(str_opt[opt], 'invalid mode %s', opt)
 	end
 	local flags = flags(opt.flags or 'rdonly', o_bits)
+	if opt.async or opt.read_async or opt.write_async then
+		flags = bit.bor(flags, o_bits.nonblock)
+	end
 	local mode = parse_perms(opt.perms)
 	local fd = C.open(path, flags, mode)
 	if fd == -1 then return check() end
-	return file_ct(fd)
+	return fs.wrap_fd(fd,
+		opt.async or opt.read_async,
+		opt.async or opt.write_async)
 end
 
 function file.closed(f)
@@ -116,14 +148,16 @@ function file.closed(f)
 end
 
 function file.close(f)
-	if f:closed() then return end
+	if f:closed() then return true end
+	if f._read_async or f._write_async then
+		local sock = require'sock'
+		local ok, err = sock._unregister(f)
+		if not ok then return nil, err end
+	end
 	local ok = C.close(f.fd) == 0
-	f.fd = -1 --ignore failure
-	return check(ok)
-end
-
-function fs.wrap_fd(fd)
-	return file_ct(fd)
+	if not ok then return check(false) end
+	f.fd = -1
+	return true
 end
 
 cdef[[
@@ -135,10 +169,10 @@ function fs.fileno(file)
 	return check(fd ~= -1 and fd or nil)
 end
 
-function fs.wrap_file(file)
+function fs.wrap_file(file, ...)
 	local fd = C.fileno(file)
 	if fd == -1 then return check() end
-	return fs.wrap_fd(fd)
+	return fs.wrap_fd(fd, ...)
 end
 
 function file.set_inheritable(file, inheritable)
@@ -147,27 +181,37 @@ end
 
 --pipes ----------------------------------------------------------------------
 
-cdef[[
+ffi.cdef[[
 int pipe(int[2]);
-int fcntl(int fd, int cmd, ...);
 int mkfifo(const char *pathname, mode_t mode);
 ]]
 
 function fs.pipe(path, mode)
+	local opt
 	if type(path) == 'table' then
-		path, mode = path.path, path
+		path, mode, opt = path.path, path.mode, path
 	end
+	opt = opt or {}
+	local ar = opt.async or opt.read_async
+	local aw = opt.async or opt.write_async
 	mode = parse_perms(mode)
 	if path then
-		return check(C.mkfifo(path, mode) ~= 0)
+		local fd, err = check(C.mkfifo(path, mode) ~= 0)
+		if not fd then return nil, err end
+		return fs.wrap_fd(fd, ar, aw)
 	else --unnamed pipe
 		local fds = ffi.new'int[2]'
 		if C.pipe(fds) ~= 0 then
 			return check()
 		end
-		return
-			fs.wrap_fd(fds[0]),
-			fs.wrap_fd(fds[1])
+		local rf, err1 = fs.wrap_fd(fds[0], ar, aw)
+		local wf, err2 = fs.wrap_fd(fds[1], ar, aw)
+		if not (rf and wf) then
+			if rf then assert(rf:close()) end
+			if wf then assert(wf:close()) end
+			return nil, err1 or err2
+		end
+		return rf, wf
 	end
 end
 
@@ -192,15 +236,25 @@ int64_t lseek(int fd, int64_t offset, int whence) asm("lseek%s");
 
 function file.read(f, buf, sz)
 	assert(sz > 0) --because it returns 0 for EOF
-	local szread = C.read(f.fd, buf, sz)
-	if szread == -1 then return check() end
-	return tonumber(szread)
+	if f._read_async then
+		local sock = require'sock'
+		return sock._file_async_read(f, buf, sz, expires)
+	else
+		local szread = C.read(f.fd, buf, sz)
+		if szread == -1 then return check() end
+		return tonumber(szread)
+	end
 end
 
 function file._write(f, buf, sz)
-	local szwr = C.write(f.fd, buf, sz or #buf)
-	if szwr == -1 then return check() end
-	return tonumber(szwr)
+	if f._write_async then
+		local sock = require'sock'
+		return sock._file_async_write(f, buf, sz, expires)
+	else
+		local szwr = C.write(f.fd, buf, sz or #buf)
+		if szwr == -1 then return check() end
+		return tonumber(szwr)
+	end
 end
 
 function file.flush(f)
@@ -787,10 +841,11 @@ dir_ct = ffi.typeof[[
 ]]
 
 function dir.close(dir)
-	if dir:closed() then return end
+	if dir:closed() then return true end
 	local ok = C.closedir(dir._dirp) == 0
-	dir._dirp = nil --ignore failure, prevent double-close
-	return check(ok)
+	if not ok then return check(false) end
+	dir._dirp = nil
+	return true
 end
 
 function dir_ready(dir)

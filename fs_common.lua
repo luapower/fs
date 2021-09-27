@@ -181,7 +181,7 @@ end
 --file objects ---------------------------------------------------------------
 
 function fs.isfile(f)
-	return ffi.istype(file_ct, f)
+	return type(f) == 'table' and rawget(f, '__index') == file
 end
 
 --returns a read(buf, maxsz) -> sz function which reads ahead from file.
@@ -241,7 +241,6 @@ stream_ct = ffi.typeof'struct FILE'
 function stream.close(fs)
 	local ok = C.fclose(fs) == 0
 	if not ok then return check_errno() end
-	ffi.gc(fs, nil)
 	return true
 end
 
