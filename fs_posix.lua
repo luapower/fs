@@ -97,26 +97,28 @@ local F_GETFL     = 3
 local F_SETFL     = 4
 local O_NONBLOCK  = 0x800
 
-local function setnonblocking(f)
+function file.make_async(f)
 	local fl = C.fcntl(f.fd, F_GETFL)
 	assert(check(C.fcntl(f.fd, F_SETFL, ffi.cast('int', bit.bor(fl, O_NONBLOCK))) == 0))
+	local sock = require'sock'
+	local ok, err = sock._register(f)
+	if not ok then return nil, err end
+	f._async = true
+	print('async', f.fd)
+	return true
 end
 
-function fs.wrap_fd(fd, read_async, write_async)
+function fs.wrap_fd(fd, async)
 
 	local f = {
 		fd = fd,
 		s = fd, --for async use with sock
-		_read_async  = read_async  and true or false,
-		_write_async = write_async and true or false,
 		__index = file,
 	}
 	setmetatable(f, f)
 
-	if read_async or write_async then
-		setnonblocking(f)
-		local sock = require'sock'
-		local ok, err = sock._register(f)
+	if async then
+		local ok, err = f:make_async()
 		if not ok then
 			assert(f:close())
 			return nil, err
@@ -132,15 +134,11 @@ function fs.open(path, opt)
 		opt = assert(str_opt[opt], 'invalid mode %s', opt)
 	end
 	local flags = flags(opt.flags or 'rdonly', o_bits)
-	if opt.async or opt.read_async or opt.write_async then
-		flags = bit.bor(flags, O_NONBLOCK)
-	end
+	flags = bit.bor(flags, opt.async and O_NONBLOCK or 0)
 	local mode = parse_perms(opt.perms)
 	local fd = C.open(path, flags, mode)
 	if fd == -1 then return check() end
-	return fs.wrap_fd(fd,
-		opt.async or opt.read_async,
-		opt.async or opt.write_async)
+	return fs.wrap_fd(fd, opt.async)
 end
 
 function file.closed(f)
@@ -149,7 +147,7 @@ end
 
 function file.close(f)
 	if f:closed() then return true end
-	if f._read_async or f._write_async then
+	if f._async then
 		local sock = require'sock'
 		local ok, err = sock._unregister(f)
 		if not ok then return nil, err end
@@ -192,20 +190,18 @@ function fs.pipe(path, mode)
 		path, mode, opt = path.path, path.mode, path
 	end
 	opt = opt or {}
-	local ar = opt.async or opt.read_async
-	local aw = opt.async or opt.write_async
 	mode = parse_perms(mode)
 	if path then
 		local fd, err = check(C.mkfifo(path, mode) ~= 0)
 		if not fd then return nil, err end
-		return fs.wrap_fd(fd, ar, aw)
+		return fs.wrap_fd(fd, opt.async)
 	else --unnamed pipe
 		local fds = ffi.new'int[2]'
 		if C.pipe(fds) ~= 0 then
 			return check()
 		end
-		local rf, err1 = fs.wrap_fd(fds[0], ar, aw)
-		local wf, err2 = fs.wrap_fd(fds[1], ar, aw)
+		local rf, err1 = fs.wrap_fd(fds[0], opt.async or opt.read_async)
+		local wf, err2 = fs.wrap_fd(fds[1], opt.async or opt.write_async)
 		if not (rf and wf) then
 			if rf then assert(rf:close()) end
 			if wf then assert(wf:close()) end
@@ -236,7 +232,7 @@ int64_t lseek(int fd, int64_t offset, int whence) asm("lseek%s");
 
 function file.read(f, buf, sz)
 	assert(sz > 0) --because it returns 0 for EOF
-	if f._read_async then
+	if f._async then
 		local sock = require'sock'
 		return sock._file_async_read(f, buf, sz, expires)
 	else
@@ -247,7 +243,7 @@ function file.read(f, buf, sz)
 end
 
 function file._write(f, buf, sz)
-	if f._write_async then
+	if f._async then
 		local sock = require'sock'
 		return sock._file_async_write(f, buf, sz, expires)
 	else
