@@ -99,7 +99,7 @@ local O_NONBLOCK  = 0x800
 
 local function setnonblocking(f)
 	local fl = C.fcntl(f.fd, F_GETFL)
-	assert(check(C.fcntl(f.fd, F_SETFL, bit.bor(fl, O_NONBLOCK)) == 0))
+	assert(check(C.fcntl(f.fd, F_SETFL, ffi.cast('int', bit.bor(fl, O_NONBLOCK))) == 0))
 end
 
 function fs.wrap_fd(fd, read_async, write_async)
@@ -133,7 +133,7 @@ function fs.open(path, opt)
 	end
 	local flags = flags(opt.flags or 'rdonly', o_bits)
 	if opt.async or opt.read_async or opt.write_async then
-		flags = bit.bor(flags, o_bits.nonblock)
+		flags = bit.bor(flags, O_NONBLOCK)
 	end
 	local mode = parse_perms(opt.perms)
 	local fd = C.open(path, flags, mode)
