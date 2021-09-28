@@ -104,7 +104,6 @@ function file.make_async(f)
 	local ok, err = sock._register(f)
 	if not ok then return nil, err end
 	f._async = true
-	print('async', f.fd)
 	return true
 end
 
