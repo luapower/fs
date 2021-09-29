@@ -107,11 +107,13 @@ function file.make_async(f)
 	return true
 end
 
-function fs.wrap_fd(fd, async)
+function fs.wrap_fd(fd, async, is_pipe_end)
 
 	local f = {
 		fd = fd,
 		s = fd, --for async use with sock
+		type = is_pipe_end and 'pipe' or 'file',
+		debug_prefix = is_pipe_end and 'P' or 'F',
 		__index = file,
 	}
 	setmetatable(f, f)
@@ -137,7 +139,7 @@ function fs.open(path, opt)
 	local mode = parse_perms(opt.perms)
 	local fd = C.open(path, flags, mode)
 	if fd == -1 then return check() end
-	return fs.wrap_fd(fd, opt.async)
+	return fs.wrap_fd(fd, opt.async, opt.is_pipe_end)
 end
 
 function file.closed(f)
@@ -193,14 +195,14 @@ function fs.pipe(path, mode)
 	if path then
 		local fd, err = check(C.mkfifo(path, mode) ~= 0)
 		if not fd then return nil, err end
-		return fs.wrap_fd(fd, opt.async)
+		return fs.wrap_fd(fd, opt.async, true)
 	else --unnamed pipe
 		local fds = ffi.new'int[2]'
 		if C.pipe(fds) ~= 0 then
 			return check()
 		end
-		local rf, err1 = fs.wrap_fd(fds[0], opt.async or opt.read_async)
-		local wf, err2 = fs.wrap_fd(fds[1], opt.async or opt.write_async)
+		local rf, err1 = fs.wrap_fd(fds[0], opt.async or opt.read_async, true)
+		local wf, err2 = fs.wrap_fd(fds[1], opt.async or opt.write_async, true)
 		if not (rf and wf) then
 			if rf then assert(rf:close()) end
 			if wf then assert(wf:close()) end

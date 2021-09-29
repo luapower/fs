@@ -393,9 +393,10 @@ function fs.wrap_handle(h, read_async, write_async, is_pipe_end)
 	local f = {
 		handle = h,
 		s = h, --for async use with sock
+		type = is_pipe_end and 'pipe' or 'file',
+		debug_prefix = is_pipe_end and 'p' or 'f',
 		_read_async  = read_async  and true or false,
 		_write_async = write_async and true or false,
-		_is_pipe_end = is_pipe_end and true or false,
 		__index = file,
 	}
 	setmetatable(f, f)
