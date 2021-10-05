@@ -321,19 +321,35 @@ local str_opt = {
 	r = {
 		access = 'read',
 		creation = 'open_existing',
-		flags = 'backup_semantics'},
-	w = {
-		access = 'write',
-		creation = 'create_always',
-		flags = 'backup_semantics'},
+		flags = 'backup_semantics',
+	},
 	['r+'] = {
 		access = 'read write',
 		creation = 'open_existing',
-		flags = 'backup_semantics'},
+		flags = 'backup_semantics',
+	},
+	w = {
+		access = 'write',
+		creation = 'create_always',
+		flags = 'backup_semantics',
+	},
 	['w+'] = {
 		access = 'read write',
 		creation = 'create_always',
-		flags = 'backup_semantics'},
+		flags = 'backup_semantics',
+	},
+	a = {
+		access = 'write',
+		creation = 'open_always',
+		flags = 'backup_semantics',
+		seek_end = true,
+	},
+	['a+'] = {
+		access = 'read write',
+		creation = 'open_always',
+		flags = 'backup_semantics',
+		seek_end = true,
+	},
 }
 
 local function sec_attr(inheritable)
@@ -364,10 +380,18 @@ function fs.open(path, opt)
 	local h = C.CreateFileW(
 		wcs(path), access, sharing, sa, creation, attflags, nil)
 	if h == INVALID_HANDLE_VALUE then return check() end
-	local f = fs.wrap_handle(h,
+	local f, err = fs.wrap_handle(h,
 		opt.async or opt.read_async,
 		opt.async or opt.write_async,
 		opt.is_pipe_end)
+	if not f then return nil, err end
+	if opt.seek_end then
+		local ok, err = f:seek('end', 0)
+		if not ok then
+			f:close()
+			return nil, err
+		end
+	end
 	return f
 end
 

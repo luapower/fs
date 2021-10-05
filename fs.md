@@ -179,9 +179,11 @@ Open/create a file for reading and/or writing. The second arg can be a string:
 
 ------- ------------------------------------------------------------------------
 `r`     open; allow reading only (default)
+`r+`    open; allow reading and writing
 `w`     open and truncate or create; allow writing only
-`r+`    open or create; allow reading and writing
-`w+`    open and trucate or create; allow reading and writing
+`w+`    open and truncate or create; allow reading and writing
+`a`     open and seek to end or create; allow writing only
+`a+`    open and seek to end or create; allow reading and writing
 ------- ------------------------------------------------------------------------
 
 ... or an options table with platform-specific options which represent

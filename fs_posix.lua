@@ -85,10 +85,12 @@ local o_bits = {
 }
 
 local str_opt = {
-	r = {flags = 'rdonly'},
-	w = {flags = 'creat wronly trunc'},
+	['r' ] = {flags = 'rdonly'},
 	['r+'] = {flags = 'rdwr'},
+	['w' ] = {flags = 'creat wronly trunc'},
 	['w+'] = {flags = 'creat rdwr'},
+	['a' ] = {flags = 'creat wronly', seek_end = true},
+	['a+'] = {flags = 'creat rdwr', seek_end = true},
 }
 
 ffi.cdef'int fcntl(int fd, int cmd, ...);'
@@ -139,7 +141,16 @@ function fs.open(path, opt)
 	local mode = parse_perms(opt.perms)
 	local fd = C.open(path, flags, mode)
 	if fd == -1 then return check() end
-	return fs.wrap_fd(fd, opt.async, opt.is_pipe_end)
+	local f, err = fs.wrap_fd(fd, opt.async, opt.is_pipe_end)
+	if not f then return nil, err end
+	if opt.seek_end then
+		local ok, err = f:seek('end', 0)
+		if not ok then
+			assert(f:close())
+			return nil, err
+		end
+	end
+	return f
 end
 
 function file.closed(f)
