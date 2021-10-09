@@ -246,8 +246,8 @@ created in any directory as they are just a type of file.
 
 ### `f:stream(mode) -> fs`
 
-Open a `FILE*` object from a file. The file should not be used anymore
-and `fs:close()` should be called to close the file.
+Open a `FILE*` object from a file. The file should not be used anymore while
+a stream is open on it and `fs:close()` should be called to close the file.
 
 ### `fs:close()`
 
@@ -269,12 +269,12 @@ Read data from file. Returns (and keeps returning) 0 on EOF or broken pipe.
 ### `f:readn(buf, len) -> true`
 
 Read data from file until `len` is read.
-Partial reads are signaled with `nil, 'eof', nil, readlen`.
+Partial reads are signaled with `nil, err, readlen`.
 
 ### `f:write(s | buf,len) -> true`
 
 Write data to file.
-Partial writes are signaled with `nil, 'eof', writelen`.
+Partial writes are signaled with `nil, err, writelen`.
 
 ### `f:flush()`
 
