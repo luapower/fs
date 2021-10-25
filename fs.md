@@ -486,7 +486,10 @@ Features:
 
 Limitations:
 
-  * I/O errors from accessing mmapped memory cause a crash.
+  * I/O errors from accessing mmapped memory cause a crash (and there's
+  nothing that can be done about that with the current ffi), which makes
+  this API unsuitable for mapping files from removable media or recovering
+  from write failures in general. For all other uses it is fine.
 
 ### `fs.map(args_t) -> map` <br> `fs.map(path, [access], [size], [offset], [addr], [tagname]) -> map` <br> `f:map([access], [size], [offset], [addr])`
 
@@ -507,7 +510,7 @@ will be mapped instead.
 		* if the file size is zero the mapping fails with `'file_too_short'`.
 	* if the file doesn't exist:
 		* if write access is given, the file is created.
-		* if write access is not given, the mapping fails with `'no_file'` error.
+		* if write access is not given, the mapping fails with `'not_found'` error.
 	* if the file is shorter than the required offset + size:
 		* if write access is not given (or the file is the pagefile which
 		can't be resized), the mapping fails with `'file_too_short'` error.
@@ -529,7 +532,7 @@ Returns an object with the fields:
 
 If the mapping fails, returns `nil,err` where `err` can be:
 
-* `'no_file'` - file not found.
+* `'not_found'` - file not found.
 * `'file_too_short'` - the file is shorter than the required size.
 * `'disk_full'` - the file cannot be extended because the disk is full.
 * `'out_of_mem'` - size or address too large or specified address in use.
