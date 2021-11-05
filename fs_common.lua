@@ -76,6 +76,7 @@ local error_classes = {
 	[2] = 'not_found', --ENOENT, _open_osfhandle(), _fdopen(), open(), mkdir(),
 	                   --rmdir(), opendir(), rename(), unlink()
 	[5] = 'io_error', --EIO, readlink(), read()
+	[13] = 'access_denied', --EACCESS, mkdir() etc.
 	[17] = 'already_exists', --EEXIST, open(), mkdir()
 	[20] = 'not_found', --ENOTDIR, opendir()
 	--[21] = 'access_denied', --EISDIR, unlink()
@@ -327,11 +328,11 @@ function fs.mkdir(dir, recursive, ...)
 		dir = path.normalize(dir) --avoid creating `dir` in `dir/..` sequences
 		local t = {}
 		while true do
-			local ok, err = mkdir(dir, ...)
+			local ok, err, errno = mkdir(dir, ...)
 			if ok then break end
 			if err ~= 'not_found' then --other problem
 				ok = err == 'already_exists' and #t == 0
-				return ok, err
+				return ok, err, errno
 			end
 			table.insert(t, dir)
 			dir = path.dir(dir)
@@ -341,8 +342,8 @@ function fs.mkdir(dir, recursive, ...)
 		end
 		while #t > 0 do
 			local dir = table.remove(t)
-			local ok, err = mkdir(dir, ...)
-			if not ok then return ok, err end
+			local ok, err, errno = mkdir(dir, ...)
+			if not ok then return ok, err, errno end
 		end
 		return true
 	else
