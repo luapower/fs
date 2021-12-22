@@ -8,7 +8,7 @@ local ffi = require'ffi'
 local bit = require'bit'
 local path = require'path'
 
-local min, max, floor, ceil, log =
+local min, max, floor, ceil, ln =
 	math.min, math.max, math.floor, math.ceil, math.log
 
 local C = ffi.C
@@ -52,7 +52,7 @@ end
 
 --next power of two (from glue).
 local function nextpow2(x)
-	return max(0, 2^(ceil(log(x) / log(2))))
+	return max(0, 2^(ceil(ln(x) / ln(2))))
 end
 
 --static, auto-growing buffer allocation pattern (from glue, simplified).
@@ -99,7 +99,7 @@ function check_errno(ret, errno)
 		local s = C.strerror(errno)
 		err = s ~= nil and ffi.string(s) or 'Error '..errno
 	end
-	return ret, err, errno
+	return ret, err
 end
 
 --flags arg parsing ----------------------------------------------------------
@@ -578,6 +578,23 @@ end
 
 --memory mapping -------------------------------------------------------------
 
+do
+local m = ffi.new[[
+	union {
+		struct { uint32_t lo; uint32_t hi; };
+		uint64_t x;
+	}
+]]
+function split_uint64(x)
+	m.x = x
+	return m.hi, m.lo
+end
+function join_uint64(hi, lo)
+	m.hi, m.lo = hi, lo
+	return m.x
+end
+end
+
 function fs.aligned_size(size, dir) --dir can be 'l' or 'r' (default: 'r')
 	if ffi.istype(uint64_ct, size) then --an uintptr_t on x64
 		local pagesize = fs.pagesize()
@@ -598,7 +615,7 @@ function fs.aligned_addr(addr, dir)
 		fs.aligned_size(ffi.cast(uintptr_ct, addr), dir))
 end
 
-function map_check_tagname(tagname)
+function check_tagname(tagname)
 	assert(tagname, 'no tagname given')
 	assert(not tagname:find'[/\\]', 'invalid tagname')
 	return tagname
@@ -615,18 +632,7 @@ function protect(map, offset, size)
 end
 ]]
 
-function map_access_args(access)
-	assert(not access:find'[^rwcx]', 'invalid access flags')
-	local write = access:find'w' and true or false
-	local copy = access:find'c' and true or false
-	local exec = access:find'x' and true or false
-	assert(not (write and copy), 'invalid access flags')
-	return write, exec, copy
-end
-
-local function map_args(t,...)
-
-	--dispatch args
+function fs.map(t,...)
 	local file, access, size, offset, addr, tagname
 	if type(t) == 'table' then
 		file, access, size, offset, addr, tagname =
@@ -634,30 +640,25 @@ local function map_args(t,...)
 	else
 		file, access, size, offset, addr, tagname = t, ...
 	end
-
-	--apply defaults/convert
+	assert(not file or type(file) == 'string' or fs.isfile(file),
+		'invalid file argument')
 	local access = access or ''
-	local offset = file and offset or 0
-	local addr = addr and ffi.cast(void_ptr_ct, addr)
-	local access_write, access_exec, access_copy = map_access_args(access)
-
-	--check
+	assert(not access:find'[^rwcx]', 'invalid access flags')
+	local write = access:find'w' and true or false
+	local copy  = access:find'c' and true or false
+	local exec  = access:find'x' and true or false
+	assert(not (write and copy), 'invalid access flags')
 	assert(file or size, 'file and/or size expected')
-	assert(not (file and tagname), 'cannot have both file and tagname')
 	assert(not size or size > 0, 'size must be > 0')
+	local offset = file and offset or 0
 	assert(offset >= 0, 'offset must be >= 0')
 	assert(offset == fs.aligned_size(offset), 'offset not page-aligned')
+	local addr = addr and ffi.cast(void_ptr_ct, addr)
 	assert(not addr or addr ~= nil, 'addr can\'t be zero')
-	assert(not addr or addr == fs.aligned_addr(addr),
-		'addr not page-aligned')
+	assert(not addr or addr == fs.aligned_addr(addr), 'addr not page-aligned')
+	assert(not (file and tagname), 'cannot have both file and tagname')
 	if tagname then check_tagname(tagname) end
-
-	return file, access_write, access_exec, access_copy,
-		size, offset, addr, tagname
-end
-
-function fs.map(...)
-	return fs_map(map_args(...))
+	return fs_map(file, write, exec, copy, size, offset, addr, tagname)
 end
 
 function file.mirror_map(f, t, ...)
@@ -670,7 +671,7 @@ function file.mirror_map(f, t, ...)
 	return fs.mirror_map(f, size, times, addr)
 end
 
-function fs.mirror_map(f, ...)
+function fs.mirror_map(t, ...)
 
 	--dispatch args
 	local file, size, times, addr
@@ -683,7 +684,6 @@ function fs.mirror_map(f, ...)
 	--apply defaults/convert/check
 	local size = fs.aligned_size(size or fs.pagesize())
 	local times = times or 2
-	local access = 'w'
 	assert(times > 0, 'times must be > 0')
 
 	local retries = -1
@@ -698,7 +698,7 @@ function fs.mirror_map(f, ...)
 	local map, err = fs.map{
 		file = file,
 		size = size * times,
-		access = access,
+		access = 'w',
 		addr = addr,
 	}
 	if not map then
@@ -723,8 +723,9 @@ function fs.mirror_map(f, ...)
 			file = file,
 			size = size,
 			addr = addr + (i - 1) * size,
-			access = access,
+			access = 'w',
 		}
+		print('...', i, retries, map.addr, map.size, err)
 		if not map then
 			maps:free()
 			goto try_again

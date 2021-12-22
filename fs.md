@@ -13,10 +13,6 @@ Filesystem API for Windows, Linux and OSX. Features:
   * cdata buffer-based I/O
   * platform-specific extra-functionality fully exposed
 
-## Status
-
-<warn>Memory mapping is not finished yet!</warn>
-
 ## API
 
 ------------------------------------------------- -------------------------------------------------
@@ -521,6 +517,8 @@ will be mapped instead.
 	* must be aligned to a page boundary or an error is raised.
 	* ignored when mapping the pagefile.
 * `addr`: address to use (optional; an error is raised if zero).
+   * it's best to provide an address that is above 4 GB to avoid starving
+	LuaJIT which can only allocate in the lower 4 GB of the address space.
 * `tagname`: name of the memory map (optional; cannot be used with `file`;
 must not contain slashes or backslashes): using the same name in two
 different processes (or in the same process) gives access to the same memory.
@@ -553,7 +551,7 @@ or copy-on-write access results in a crash.
 ### `map:free()`
 
 Free the memory and all associated resources and close the file
-if it was opened by `fs.map()`.
+if it was opened by the `fs.map()` call.
 
 ### `map:flush([async, ][addr, size]) -> true | nil,err`
 
