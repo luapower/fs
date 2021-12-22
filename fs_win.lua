@@ -1436,13 +1436,16 @@ BOOL VirtualProtect(
 	PDWORD lpflOldProtect);
 ]]
 
-local PAGE_NOACCESS                = 0x0001
+local PAGE_NOACCESS                = 0x0001 --not used here
 local PAGE_READONLY                = 0x0002
 local PAGE_READWRITE               = 0x0004
 local PAGE_WRITECOPY               = 0x0008 --no file auto-grow with this!
-local PAGE_EXECUTE_READ            = 0x0020 --xp sp2+
-local PAGE_EXECUTE_READWRITE       = 0x0040 --xp sp2+
-local PAGE_EXECUTE_WRITECOPY       = 0x0080 --vista sp1+
+local PAGE_EXECUTE_READ            = 0x0020
+local PAGE_EXECUTE_READWRITE       = 0x0040
+local PAGE_EXECUTE_WRITECOPY       = 0x0080
+local PAGE_GUARD                   = 0x0100 --not used here
+local PAGE_NOCACHE                 = 0x0200 --not used here
+local PAGE_WRITECOMBINE            = 0x0400 --not used here
 
 local function protect_flag(write, exec, copy)
 	return exec and (
@@ -1456,20 +1459,11 @@ local function protect_flag(write, exec, copy)
 		)
 end
 
-local PAGE_GUARD                   = 0x0100
-local PAGE_NOCACHE                 = 0x0200
-local PAGE_WRITECOMBINE            = 0x0400
-local SECTION_QUERY                = 0x0001
-local SECTION_MAP_WRITE            = 0x0002
-local SECTION_MAP_READ             = 0x0004
-local SECTION_MAP_EXECUTE          = 0x0008
-local SECTION_EXTEND_SIZE          = 0x0010
-local SECTION_MAP_EXECUTE_EXPLICIT = 0x0020 --xp sp2+
-local FILE_MAP_WRITE               = 0x0002 --section_map_write
-local FILE_MAP_READ                = 0x0004 --section_map_read
-local FILE_MAP_COPY                = 0x00000001
-local FILE_MAP_RESERVE             = 0x80000000
-local FILE_MAP_EXECUTE             = 0x0020 --execute_explicit xp sp2+
+local FILE_MAP_COPY                = 0x0001
+local FILE_MAP_WRITE               = 0x0002 --same as SECTION_MAP_WRITE
+local FILE_MAP_READ                = 0x0004 --same as SECTION_MAP_READ
+local FILE_MAP_EXECUTE             = 0x0020
+local FILE_MAP_RESERVE             = 0x80000000 --not used here
 
 function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 
@@ -1478,8 +1472,8 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 	if type(file) == 'string' then
 		local open_opt = {
 			access = 'read'
-				.. (execute and ' execute' or '')
-				.. (write   and ' write'   or ''),
+				.. (exec  and ' execute' or '')
+				.. (write and ' write'   or ''),
 			sharing = 'read write delete',
 			creation = write and 'open_always' or 'open_existing',
 		}
@@ -1508,9 +1502,9 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 
 	local access = bor(
 		not write and not copy and FILE_MAP_READ or 0,
-		write and FILE_MAP_WRITE or 0,
-		copy  and FILE_MAP_COPY or 0,
-		exec  and SECTION_MAP_EXECUTE or 0
+		write and FILE_MAP_WRITE   or 0,
+		copy  and FILE_MAP_COPY    or 0,
+		exec  and FILE_MAP_EXECUTE or 0
 	)
 	local offset_hi, offset_lo = split_uint64(offset)
 

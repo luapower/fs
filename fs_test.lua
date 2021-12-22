@@ -877,10 +877,8 @@ end
 
 function test.map_shared_via_tagname()
 	local size = mediumsize
-	local map1 = assert(fs.map{tagname = 'mmap_test',
-		access = 'w', size = size})
-	local map2 = assert(fs.map{tagname = 'mmap_test',
-		access = 'r', size = size})
+	local map1 = assert(fs.map{tagname = 'mmap_test', access = 'w', size = size})
+	local map2 = assert(fs.map{tagname = 'mmap_test', access = 'r', size = size})
 	map1:unlink() --can be called while mappings are alive.
 	map2:unlink() --no-op if file not found.
 	assert(map1.addr ~= map2.addr)
@@ -894,8 +892,6 @@ end
 
 function test.map_file_exec()
 	--TODO: test by exec'ing some code in the memory
-	--TODO: access denied
-	do return end
 	local map = assert(fs.map{file = 'bin/mingw64/luajit.exe', access = 'x'})
 	assert(ffi.string(map.addr, 2) == 'MZ')
 	map:free()

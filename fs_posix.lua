@@ -981,7 +981,7 @@ local function open(path, write, exec, shm)
 	local oflags = write and bit.bor(O_RDWR, O_CREAT) or O_RDONLY
 	local perms = oct'444' +
 		(write and oct'222' or 0) +
-		(exec and oct'111' or 0)
+		(exec  and oct'111' or 0)
 	local open = shm and librt.shm_open or C.open
 	local fd = open(path, oflags, perms)
 	if fd == -1 then return reterr() end
@@ -1020,18 +1020,20 @@ local function protect_bits(write, exec, copy)
 			exec and PROT_EXEC or 0))
 end
 
+local function shared_file(tagname)
+	return tagname:find('/', 1, true) and tagname or path.combine(fs.exedir(), tagname)
+end
+
 function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 
-	local fd, close
+	local fd, err, close
 	if type(file) == 'string' then
-		local errmsg
-		fd, errmsg = open(file, write, exec)
-		if not fd then return nil, errmsg end
+		fd, err = open(file, write, exec)
+		if not fd then return nil, err end
 	elseif tagname then
-		tagname = '/'..tagname
-		local errmsg
-		fd, errmsg = open(tagname, write, exec, true)
-		if not fd then return nil, errmsg end
+		tagname = shared_file(tagname)
+		fd, err = open(tagname, write, exec, true)
+		if not fd then return nil, err end
 	end
 	local f = fs.wrap_fd(fd)
 
@@ -1137,6 +1139,6 @@ function fs.protect(addr, size, access)
 end
 
 function fs.unlink_mapfile(tagname)
-	librt.shm_unlink('/'..check_tagname(tagname))
+	librt.shm_unlink(shared_file(tagname))
 end
 

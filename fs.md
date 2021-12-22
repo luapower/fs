@@ -517,11 +517,15 @@ will be mapped instead.
 	* must be aligned to a page boundary or an error is raised.
 	* ignored when mapping the pagefile.
 * `addr`: address to use (optional; an error is raised if zero).
-   * it's best to provide an address that is above 4 GB to avoid starving
+	* it's best to provide an address that is above 4 GB to avoid starving
 	LuaJIT which can only allocate in the lower 4 GB of the address space.
 * `tagname`: name of the memory map (optional; cannot be used with `file`;
-must not contain slashes or backslashes): using the same name in two
-different processes (or in the same process) gives access to the same memory.
+	must not contain backslashes).
+	* using the same name in two different processes (or in the same process)
+	gives access to the same memory.
+	* in Linux, `tagname` refers to an actual file name on the filesystem
+	(not so in Windows). So `tagname` can be a path (contains at least one slash)
+	or a simple name in which case it will be created in `fs.exedir()`.
 
 Returns an object with the fields:
 
@@ -562,7 +566,7 @@ perform the operation asynchronously and return immediately.
 ### `fs.unlink_mapfile(tagname)` <br> `map:unlink()`
 
 Remove a (the) shared memory file from disk. When creating a shared memory
-mapping using a tagname, a file is created on the filesystem on Linux
+mapping using `tagname`, a file is created on the filesystem on Linux
 and OS X (not so on Windows). That file must be removed manually when it is
 no longer needed. This can be done anytime, even while mappings are open and
 will not affect said mappings.

@@ -615,12 +615,6 @@ function fs.aligned_addr(addr, dir)
 		fs.aligned_size(ffi.cast(uintptr_ct, addr), dir))
 end
 
-function check_tagname(tagname)
-	assert(tagname, 'no tagname given')
-	assert(not tagname:find'[/\\]', 'invalid tagname')
-	return tagname
-end
-
 --[[
 function protect(map, offset, size)
 	local offset = offset or 0
@@ -657,7 +651,7 @@ function fs.map(t,...)
 	assert(not addr or addr ~= nil, 'addr can\'t be zero')
 	assert(not addr or addr == fs.aligned_addr(addr), 'addr not page-aligned')
 	assert(not (file and tagname), 'cannot have both file and tagname')
-	if tagname then check_tagname(tagname) end
+	assert(not tagname or not tagname:find('\\', 1, true), 'tagname cannot contain `\\`')
 	return fs_map(file, write, exec, copy, size, offset, addr, tagname)
 end
 
