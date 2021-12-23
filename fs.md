@@ -9,9 +9,9 @@ Filesystem API for Windows, Linux and OSX. Features:
   * utf8 filenames on all platforms
   * symlinks and hard links on all platforms
   * memory mapping on all platforms
-  * unified error codes for recoverable error cases
+  * some error code unification for common error cases
   * cdata buffer-based I/O
-  * platform-specific extra-functionality fully exposed
+  * platform-specific functionality exposed
 
 ## API
 
@@ -76,13 +76,14 @@ __low level__
 `fs.fileno(FILE*) -> fd`                          get stream's file descriptor
 __memory mapping__
 `fs.map(...) -> map`                              create a memory mapping
+`f:map([offset],[size],[addr],[access]) -> map`   create a memory mapping
 `map.addr`                                        a `void*` pointer to the mapped memory
 `map.size`                                        size of the mapped memory in bytes
 `map:flush([async, ][addr, size])`                flush (parts of) the mapping to disk
 `map:free()`                                      release the memory and associated resources
 `fs.unlink_mapfile(tagname)` \                    remove the shared memory file from disk (Linux, OSX)
 `map:unlink()`
-`fs.mirror_map(...) -> map`                       create a mirrored memory mapping
+`fs.mirror_buffer([size], [addr]) -> map`         create a mirrored memory-mapped ring buffer
 `fs.pagesize() -> bytes`                          get allocation granularity
 `fs.aligned_size(bytes[, dir]) -> bytes`          next/prev page-aligned size
 `fs.aligned_addr(ptr[, dir]) -> ptr`              next/prev page-aligned address
@@ -159,9 +160,11 @@ __name__       __win__ __osx__ __linux__ __description__
 __message__          __description__
 -------------------- -----------------------------------------------------------
 `not_found`          file/dir/path not found
+`io_error`           I/O error
 `access_denied`      access denied
 `already_exists`     file/dir already exists
-`not_empty`          dir not empty (eg. for remove())
+`is_dir`             trying this on a directory
+`not_empty`          dir not empty (for remove())
 `io_error`           I/O error
 `disk_full`          no space left on device
 -------------------- -----------------------------------------------------------
@@ -221,17 +224,20 @@ Check if `f` is a file object.
 Create an anonymous (unnamed) pipe. Return two files corresponding to the
 read and write ends of the pipe.
 
+__NOTE__: If you're using async anonymous pipes in Windows _and_ you're
+also creating multiple Lua states _per OS thread_, make sure to set a unique
+`fs.lua_state_id` per Lua state to distinguish them. That is because
+in Windows, async anonymous pipes are emulated using named pipes.
+
 ### `fs.pipe({path=,<opt>=} | path[,options]) -> pf`
 
-Create a named pipe (Windows). Named pipes on Windows cannot be created in
-any directory like on POSIX systems, instead they must be created in the
-special directory called `\\.\pipe`. After creation, named pipes can be
-opened for reading and writing like normal files.
+Create or open a named pipe (Windows). Named pipes on Windows cannot
+be created in any directory like on POSIX systems, instead they must be
+created in the special directory called `\\.\pipe`. After creation,
+named pipes can be opened for reading and writing like normal files.
 
 Named pipes on Windows cannot be removed and are not persistent. They are
 destroyed automatically when the process that created them exits.
-
-### `fs.waitpipe(path)`
 
 ### `fs.pipe({path=,mode=} | path[,mode]) -> true`
 
@@ -281,17 +287,32 @@ Flush buffers.
 Get/set the file pointer. Same semantics as standard `io` module seek
 i.e. `whence` defaults to `'cur'` and `offset` defaults to `0`.
 
-### `f:truncate([opt])`
+### `f:truncate(size, [opt])`
 
-Truncate file to current file pointer.
+Truncate file to given `size` and move the current file pointer to `EOF`.
+This can be done both to shorten a file and thus free disk space, or to
+preallocate disk space to be subsequently filled (eg. when downloading a file).
 
-`opt` is an optional string for Linux which can contain any combination of
-the words `fallocate` (call `fallocate()`), `emulate` (fill the file with
-zeroes if the filesystem doesn't support `fallocate()`), and `fail` (do not
-call `ftruncate()` if `fallocate()` fails: return the error `'not_supported'`
-instead). The problem with calling `ftruncate()` if `fallocate()` fails is
-that on most filesystems that creates a sparse file, hence the `fail` option.
-The default is `'fallocate emulate'` which should never create a sparse file.
+#### On Linux
+
+`opt` is an optional string for Linux which can contain any of the words
+`fallocate` (call `fallocate()`) and `fail` (do not call `ftruncate()`
+if `fallocate()` fails: return an error instead). The problem with calling
+`ftruncate()` if `fallocate()` fails is that on most filesystems, that
+creates a sparse file which doesn't help if what you want is to actually
+reserve space on the disk, hence the `fail` option. The default is
+`'fallocate fail'` which should never create a sparse file, but it can be
+slow on some file systems (when it's emulated) or it can just fail
+(like on virtual filesystems).
+
+Btw, seeking past EOF and writing something there will also create a sparse
+file, so there's no easy way out of this complexity.
+
+#### On Windows
+
+On NTFS truncation is smarter: disk space is reserved but no zero bytes are
+written. Those bytes are only written on subsequent write calls that skip
+over the reserved area, otherwise there's no overhead.
 
 ### `f:buffered_read([ctype], [bufsize]) -> read()`
 
@@ -487,7 +508,7 @@ Limitations:
   this API unsuitable for mapping files from removable media or recovering
   from write failures in general. For all other uses it is fine.
 
-### `fs.map(args_t) -> map` <br> `fs.map(path, [access], [size], [offset], [addr], [tagname]) -> map` <br> `f:map([access], [size], [offset], [addr])`
+### `fs.map(args_t) -> map` <br> `fs.map(path, [access], [size], [offset], [addr], [tagname], [perms]) -> map` <br> `f:map([offset], [size], [addr], [access])`
 
 Create a memory map object. Args:
 
@@ -520,12 +541,9 @@ will be mapped instead.
 	* it's best to provide an address that is above 4 GB to avoid starving
 	LuaJIT which can only allocate in the lower 4 GB of the address space.
 * `tagname`: name of the memory map (optional; cannot be used with `file`;
-	must not contain backslashes).
+	must not contain slashes or backslashes).
 	* using the same name in two different processes (or in the same process)
 	gives access to the same memory.
-	* in Linux, `tagname` refers to an actual file name on the filesystem
-	(not so in Windows). So `tagname` can be a path (contains at least one slash)
-	or a simple name in which case it will be created in `fs.exedir()`.
 
 Returns an object with the fields:
 
@@ -571,23 +589,22 @@ and OS X (not so on Windows). That file must be removed manually when it is
 no longer needed. This can be done anytime, even while mappings are open and
 will not affect said mappings.
 
-### `fs.mirror_map(args_t) -> map` <br> `fs.mirror_map(file, size[, times[, addr]]) -> map`
+### `fs.mirror_buffer([size], [addr]) -> map`
 
-Create a mirrored memory mapping to use with a [lock-free ring buffer][lfrb].
+__NOTE__: OSX support is NYI.
+
+Create a mirrored buffer to use with a [lock-free ring buffer][lfrb].
 
 Args:
 
-  * `file`: the file to map: required (the access is 'w').
-  * `size`: the size of the memory segment: required, automatically aligned
-  to the next page size.
-  * `times`: how many times to mirror the segment (optional, default: 2)
+  * `size`: the size of the memory segment (optional; one page size
+  by default. automatically aligned to the next page size).
   * `addr`: address to use (optional; can be anything convertible to `void*`).
 
 The result is a table with `addr` and `size` fields and all the mirror map
 objects in its array part (freeing the mirror will free all the maps).
 The memory block at `addr` is mirrored such that
-`(char*)addr[o1*i] == (char*)addr[o2*i]` for any `o1` and `o2` in
-`0..times-1` and for any `i` in `0..size-1`.
+`(char*)addr[i] == (char*)addr[size+i]` for any `i` in `0..size-1`.
 
 ### `fs.aligned_size(bytes[, dir]) -> bytes`
 

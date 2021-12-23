@@ -87,32 +87,34 @@ local FORMAT_MESSAGE_FROM_SYSTEM = 0x00001000
 
 local errbuf = buffer'char[?]'
 
-local error_classes = {
-	[0x002] = 'not_found', --ERROR_FILE_NOT_FOUND, CreateFileW
-	[0x003] = 'not_found', --ERROR_PATH_NOT_FOUND, CreateDirectoryW
-	[0x005] = 'access_denied', --ERROR_ACCESS_DENIED, CreateFileW
-	[0x050] = 'already_exists', --ERROR_FILE_EXISTS, CreateFileW
-	[0x091] = 'not_empty', --ERROR_DIR_NOT_EMPTY, RemoveDirectoryW
-	[0x0b7] = 'already_exists', --ERROR_ALREADY_EXISTS, CreateDirectoryW
-	[0x10B] = 'not_found', --ERROR_DIRECTORY, FindFirstFileW
-	[  109] = 'eof', --ERROR_BROKEN_PIPE ReadFile, WriteFile
-
-	--TODO: mmap
-	[0x0008] = 'file_too_short', --readonly file too short
-	[0x0057] = 'out_of_mem', --size or address too large
-	[0x0070] = 'disk_full',
-	[0x01E7] = 'out_of_mem', --address in use
-	[0x03ee] = 'file_too_short', --file has zero size
-	[0x05af] = 'out_of_mem', --swapfile too short
-
+local errors = {
+	[0x002] = 'not_found'       , --ERROR_FILE_NOT_FOUND, CreateFileW
+	[0x003] = 'not_found'       , --ERROR_PATH_NOT_FOUND, CreateDirectoryW
+	[0x005] = 'access_denied'   , --ERROR_ACCESS_DENIED, CreateFileW
+	[0x01D] = 'io_error'        , --ERROR_WRITE_FAULT, WriteFile
+	[0x01E] = 'io_error'        , --ERROR_READ_FAULT, ReadFile
+	[0x050] = 'already_exists'  , --ERROR_FILE_EXISTS, CreateFileW
+	[0x091] = 'not_empty'       , --ERROR_DIR_NOT_EMPTY, RemoveDirectoryW
+	[0x0b7] = 'already_exists'  , --ERROR_ALREADY_EXISTS, CreateDirectoryW
+	[0x10B] = 'not_found'       , --ERROR_DIRECTORY, FindFirstFileW
+	[0x06D] = 'eof'             , --ERROR_BROKEN_PIPE ReadFile, WriteFile
 }
 
-local function checkneq(fail_ret, ok_ret, err_ret, ret, err)
+local mmap_errors = { --CreateFileMappingW, MapViewOfFileEx
+	[0x0008] = 'file_too_short' , --ERROR_NOT_ENOUGH_MEMORY, readonly file too short
+	[0x0057] = 'out_of_mem'     , --ERROR_INVALID_PARAMETER, size or address too large
+	[0x0070] = 'disk_full'      , --ERROR_DISK_FULL
+	[0x01E7] = 'out_of_mem'     , --ERROR_INVALID_ADDRESS, address in use
+	[0x03EE] = 'file_too_short' , --ERROR_FILE_INVALID, file has zero size
+	[0x05AF] = 'out_of_mem'     , --ERROR_COMMITMENT_LIMIT, swapfile too short
+}
+
+local function checkneq(fail_ret, ok_ret, err_ret, ret, err, xtra_errors)
 	if ret ~= fail_ret then
 		return ok_ret
 	end
 	err = err or C.GetLastError()
-	local msg = error_classes[err]
+	local msg = errors[err] or (xtra_errors and xtra_errors[err])
 	if not msg then
 		local buf, bufsz = errbuf(512)
 		local sz = C.FormatMessageA(
@@ -130,8 +132,8 @@ local function checknz(ret, err)
 	return checkneq(0, true, false, ret, err)
 end
 
-local function checknil(ret, err)
-	return checkneq(nil, ret, nil, ret, err)
+local function checknil(ret, err, errors)
+	return checkneq(nil, ret, nil, ret, err, errors)
 end
 
 local function checknum(ret, err)
@@ -391,8 +393,8 @@ function fs.open(path, opt)
 		opt.is_pipe_end)
 	if not f then return nil, err end
 	if opt.seek_end then
-		local ok, err = f:seek('end', 0)
-		if not ok then
+		local pos, err = f:seek('end', 0)
+		if not pos then
 			f:close()
 			return nil, err
 		end
@@ -548,8 +550,8 @@ function fs.pipe(path, opt)
 		if async then
 
 			serial = (serial + 1) % 0xffffffff
-			local path = string.format([[\\.\pipe\LuaPipe.%08x.%08x]],
-				C.GetCurrentThreadId(), serial)
+			local path = string.format([[\\.\pipe\LuaPipe.%08x.%08x.%08x]],
+				C.GetCurrentThreadId(), fs.lua_state_id or 0, serial)
 
 			local rf, err = fs.pipe{
 				path = path,
@@ -693,12 +695,9 @@ function file._seek(f, whence, offset)
 	return tonumber(libuf[0].QuadPart)
 end
 
---truncate/getsize/setsize ---------------------------------------------------
+--truncate -------------------------------------------------------------------
 
-cdef[[
-BOOL SetEndOfFile(HANDLE hFile);
-BOOL GetFileSizeEx(HANDLE hFile, PLARGE_INTEGER lpFileSize);
-]]
+cdef'BOOL SetEndOfFile(HANDLE hFile);'
 
 --NOTE: seeking beyond file size and then truncating the file incurs no delay
 --on NTFS, but that's not because the file becomes sparse (it doesn't, and
@@ -706,14 +705,10 @@ BOOL GetFileSizeEx(HANDLE hFile, PLARGE_INTEGER lpFileSize);
 --until the first write call _that requires it_. This is a good optimization
 --since usually the file will be written sequentially after the truncation
 --in which case those extra zero bytes will never get a chance to be written.
-function file.truncate(f, opt)
+function file.truncate(f, size)
+	local pos, err = f:seek('set', size)
+	if not pos then return nil, err end
 	return checknz(C.SetEndOfFile(f.handle))
-end
-
-function file_getsize(f)
-	local ok, err = checknz(C.GetFileSizeEx(f.handle, libuf))
-	if not ok then return nil, err end
-	return tonumber(libuf[0].QuadPart)
 end
 
 --filesystem operations ------------------------------------------------------
@@ -808,7 +803,6 @@ local SYMBOLIC_LINK_FLAG_DIRECTORY = 0x1
 
 function fs.mksymlink(link_path, target_path, is_dir)
 	local flags = is_dir and SYMBOLIC_LINK_FLAG_DIRECTORY or 0
-	print(link_path, target_path)
 	return checknz(C.CreateSymbolicLinkW(
 		wcs(link_path),
 		wcs(target_path, nil, wbuf),
@@ -1436,16 +1430,12 @@ BOOL VirtualProtect(
 	PDWORD lpflOldProtect);
 ]]
 
-local PAGE_NOACCESS                = 0x0001 --not used here
 local PAGE_READONLY                = 0x0002
 local PAGE_READWRITE               = 0x0004
 local PAGE_WRITECOPY               = 0x0008 --no file auto-grow with this!
 local PAGE_EXECUTE_READ            = 0x0020
 local PAGE_EXECUTE_READWRITE       = 0x0040
 local PAGE_EXECUTE_WRITECOPY       = 0x0080
-local PAGE_GUARD                   = 0x0100 --not used here
-local PAGE_NOCACHE                 = 0x0200 --not used here
-local PAGE_WRITECOMBINE            = 0x0400 --not used here
 
 local function protect_flag(write, exec, copy)
 	return exec and (
@@ -1459,15 +1449,21 @@ local function protect_flag(write, exec, copy)
 		)
 end
 
-local FILE_MAP_COPY                = 0x0001
-local FILE_MAP_WRITE               = 0x0002 --same as SECTION_MAP_WRITE
-local FILE_MAP_READ                = 0x0004 --same as SECTION_MAP_READ
-local FILE_MAP_EXECUTE             = 0x0020
-local FILE_MAP_RESERVE             = 0x80000000 --not used here
+local FILE_MAP_COPY    = 0x0001
+local FILE_MAP_WRITE   = 0x0002
+local FILE_MAP_READ    = 0x0004
+local FILE_MAP_EXECUTE = 0x0020
 
-function fs_map(file, write, exec, copy, size, offset, addr, tagname)
+function fs_map(file, access, size, offset, addr, tagname)
 
-	local function close_own_file() end
+	local write, exec, copy = parse_access(access or '')
+
+	--open the file, if any.
+
+	local function exit(err)
+		if file then file:close() end
+		return nil, err
+	end
 
 	if type(file) == 'string' then
 		local open_opt = {
@@ -1479,28 +1475,32 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 		}
 		local err
 		file, err = fs.open(file, open_opt)
-		if not file then return nil, err end
-		function close_own_file()
-			file:close()
+		if not file then
+			return nil, err
 		end
 	end
 
+	--create file mapping.
+
 	local protect = protect_flag(write, exec, copy)
 	local size_hi, size_lo = split_uint64(size or 0) --0 means whole file
-	local tagname = tagname and wcs('Local\\'..tagname)
+	local wtagname = tagname and wcs('Local\\'..check_tagname(tagname))
 
 	local filemap, err = checknil(C.CreateFileMappingW(
 		file and file.handle or INVALID_HANDLE_VALUE,
-		nil, protect, size_hi, size_lo, tagname
-	))
+		nil, protect, size_hi, size_lo, wtagname
+	), nil, mmap_errors)
+
 	if filemap == nil then
 		if not file and err == 'file_too_short' then --opening the swap file
 			err = 'out_of_mem'
 		end
-		return nil, err
+		return exit(err)
 	end
 
-	local access = bor(
+	--map view of file.
+
+	local access_bits = bor(
 		not write and not copy and FILE_MAP_READ or 0,
 		write and FILE_MAP_WRITE   or 0,
 		copy  and FILE_MAP_COPY    or 0,
@@ -1509,19 +1509,20 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 	local offset_hi, offset_lo = split_uint64(offset)
 
 	local addr, err = checknil(C.MapViewOfFileEx(
-		filemap, access, offset_hi, offset_lo, size or 0, addr
-	))
+		filemap, access_bits, offset_hi, offset_lo, size or 0, addr
+	), nil, mmap_errors)
 
 	if addr == nil then
 		C.CloseHandle(filemap)
-		close_own_file()
-		return nil, err
+		return exit(err)
 	end
+
+	--create the map object.
 
 	local function free()
 		C.UnmapViewOfFile(addr)
 		C.CloseHandle(filemap)
-		close_own_file()
+		exit()
 	end
 
 	local function flush(self, async, addr, sz)
@@ -1529,7 +1530,7 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 			async, addr, sz = false, async, addr
 		end
 		local addr = fs.aligned_addr(addr or self.addr, 'left')
-		local ok, err = checknz(C.FlushViewOfFile(addr, sz or 0))
+		local ok, err = checknz(C.FlushViewOfFile(addr, sz or self.size))
 		if not ok then return false, err end
 		if not async and file then
 			local ok, err = file:flush()
@@ -1546,24 +1547,97 @@ function fs_map(file, write, exec, copy, size, offset, addr, tagname)
 		size = filesize - offset
 	end
 
-	local function unlink() --no-op
-		assert(tagname, 'no tagname given')
+	local function unlink()
+		return fs.unlink_mapfile(tagname)
 	end
 
-	return {addr = addr, size = size, free = free, flush = flush,
-		unlink = unlink, protect = protect}
+	return {addr = addr, size = size, free = free,
+		flush = flush, unlink = unlink, access = access}
 
 end
 
 function fs.unlink_mapfile(tagname) --no-op
 	check_tagname(tagname)
+	return true
 end
 
 function fs.protect(addr, size, access)
-	local write, exec = map_access_args(access or 'x')
-	local protect = protect_flag(write, exec)
+	local protect = protect_flag(parse_access(access or 'x'))
 	local old = ffi.new'DWORD[1]'
-	local ok = C.VirtualProtect(addr, size, prot, old) ~= 0
-	if not ok then return reterr() end
+	local ok, err = checknz(C.VirtualProtect(addr, size, prot, old))
+	if not ok then return false, err end
 	return true
+end
+
+--mirror buffer --------------------------------------------------------------
+
+function fs.mirror_buffer(size, addr)
+
+	local size = fs.aligned_size(size or 1)
+	local size_hi, size_lo = split_uint64(size * 2)
+	local addr = ffi.cast('uint8_t*', addr)
+
+	local filemap, err = checknil(C.CreateFileMappingW(
+		INVALID_HANDLE_VALUE,
+		nil, protect_flag(true), size_hi, size_lo, nil
+	), nil, mmap_errors)
+
+	if filemap == nil then
+		if not file and err == 'file_too_short' then
+			err = 'out_of_mem'
+		end
+		return nil, err
+	end
+
+	local access_bits = bor(FILE_MAP_READ, FILE_MAP_WRITE)
+
+	local addr1, addr2
+
+	local function free()
+		if addr1 then C.UnmapViewOfFile(addr1) end
+		if addr2 then C.UnmapViewOfFile(addr2) end
+		if filemap then C.CloseHandle(filemap) end
+	end
+
+	for i = 1, 100 do
+
+		local addr, err = checknil(C.MapViewOfFileEx(
+			filemap, access_bits, 0, 0, size * 2, addr
+		), nil, mmap_errors)
+
+		if addr == nil then
+			free()
+			return nil, err
+		end
+
+		C.UnmapViewOfFile(addr)
+
+		addr1, err = checknil(C.MapViewOfFileEx(
+			filemap, access_bits, 0, 0, size, addr
+		), nil, mmap_errors)
+
+		if not addr1 then
+			goto skip
+		end
+
+		addr2, err = checknil(C.MapViewOfFileEx(
+			filemap, access_bits, 0, 0, size, ffi.cast('uint8_t*', addr1) + size
+		), nil, mmap_errors)
+
+		if not addr2 then
+			C.UnmapViewOfFile(addr1)
+			goto skip
+		end
+
+		C.CloseHandle(filemap)
+		filemap = nil
+
+		do return {addr = addr1, size = size, free = free} end
+
+		::skip::
+	end
+
+	free()
+	return nil, 'max_tries'
+
 end
