@@ -181,22 +181,18 @@ function fs.isfile(f)
 end
 
 --returns a read(buf, maxsz) -> sz function which reads ahead from file.
-function file.buffered_read(f, ctype, bufsize)
-	local elem_ct = ffi.typeof(ctype or 'char')
-	local ptr_ct = ffi.typeof('$*', elem_ct)
-	assert(ffi.sizeof(elem_ct) == 1)
-	local buf_ct = ffi.typeof('$[?]', elem_ct)
+function file.buffered_read(f, bufsize)
+	local ptr_ct = ffi.typeof'uint8_t*'
+	local buf_ct = ffi.typeof'uint8_t[?]'
 	local bufsize = bufsize or 4096
 	local buf = buf_ct(bufsize)
 	local ofs, len = 0, 0
 	local eof = false
 	return function(dst, sz)
 		if not dst then --skip bytes (libjpeg semantics)
-			local pos0, err = f:seek'cur'
-			if not pos0 then return nil, err end
-			local pos, err = f:seek('cur', sz)
-			if not pos then return nil, err end
-			return pos - pos0
+			local i, err = f:seek('cur')    ; if not i then return nil, err end
+			local j, err = f:seek('cur', sz); if not j then return nil, err end
+			return j - i
 		end
 		local rsz = 0
 		while sz > 0 do
@@ -213,7 +209,7 @@ function file.buffered_read(f, ctype, bufsize)
 					return rsz
 				end
 			end
-			--TODO: don't copy, read less.
+			--TODO: benchmark: read less instead of copying.
 			local n = min(sz, len)
 			ffi.copy(ffi.cast(ptr_ct, dst) + rsz, buf + ofs, n)
 			ofs = ofs + n

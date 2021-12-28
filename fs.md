@@ -39,7 +39,7 @@ __file i/o__
 `f:flush()`                                       flush buffers
 `f:seek([whence] [, offset]) -> pos`              get/set the file pointer
 `f:truncate([opt])`                               truncate file to current file pointer
-`f:buffered_read([ctype], [bufsize]) -> read()`   get a buffered read function
+`f:buffered_read([bufsize]) -> read(buf, sz)`     get a buffered read function
 __open file attributes__
 `f:attr([attr]) -> val|t`                         get/set attribute(s) of open file
 __directory listing__
@@ -314,11 +314,11 @@ On NTFS truncation is smarter: disk space is reserved but no zero bytes are
 written. Those bytes are only written on subsequent write calls that skip
 over the reserved area, otherwise there's no overhead.
 
-### `f:buffered_read([ctype], [bufsize]) -> read()`
+### `f:buffered_read([bufsize]) -> read(buf, sz)`
 
-Returns a `read(buf, sz) -> sz` function which reads ahead from file in order
-to lower the number of syscalls. The optional `ctype` and `bufsize` specify
-the buffer's C type and size and default to `char` and `4096` respectively.
+Returns a `read(buf, sz) -> read_sz` function which reads ahead from file
+in order to lower the number of syscalls. `bufsize` specifies the buffer's
+size (default is `4096`).
 
 ## Open file attributes
 
