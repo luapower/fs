@@ -6,6 +6,7 @@ if not ... then require'fs_test'; return end
 
 local ffi = require'ffi'
 local bit = require'bit'
+local glue = require'glue'
 local path = require'path'
 
 local min, max, floor, ceil, ln =
@@ -28,45 +29,16 @@ file = {} --file object methods
 stream = {} --FILE methods
 dir = {} --dir listing object methods
 
-function update(dt, t)
-	for k,v in pairs(t) do dt[k]=v end
-	return dt
-end
-
---binding tools --------------------------------------------------------------
-
-local char_ptr_ct = ffi.typeof'char*'
 local uint64_ct   = ffi.typeof'uint64_t'
 local void_ptr_ct = ffi.typeof'void*'
 local uintptr_ct  = ffi.typeof'uintptr_t'
 
---assert() with string formatting.
-function assert(v, err, ...)
-	if v then return v end
-	err = err or 'assertion failed!'
-	if select('#',...) > 0 then
-		err = string.format(err,...)
-	end
-	error(err, 2)
-end
+local u8p = glue.u8p
 
---next power of two (from glue).
-local function nextpow2(x)
-	return max(0, 2^(ceil(ln(x) / ln(2))))
-end
-
---static, auto-growing buffer allocation pattern (from glue, simplified).
-function buffer(ctype)
-	local ctype = ffi.typeof(ctype)
-	local buf, len = nil, -1
-	return function(minlen)
-		if minlen > len then
-			len = nextpow2(minlen)
-			buf = ctype(len)
-		end
-		return buf, len
-	end
-end
+assert = glue.assert
+buffer = glue.buffer
+dynarray = glue.dynarray
+update = glue.update
 
 --error reporting ------------------------------------------------------------
 
@@ -262,7 +234,7 @@ function file:write(buf, sz, expires)
 		end
 		assert(len > 0)
 		if type(buf) == 'string' then --only make pointer on the rare second iteration.
-			buf = ffi.cast(char_ptr_ct, buf)
+			buf = ffi.cast(u8p, buf)
 		end
 		buf = buf + len
 		sz  = sz  - len
@@ -281,6 +253,33 @@ function file:readn(buf, sz, expires)
 		sz  = sz  - len
 	end
 	return true
+end
+
+local u8a = ffi.typeof'uint8_t[?]'
+function file:readall(expires)
+	if self.type == 'file' then
+		local size, err = self:attr'size'; if not size then return nil, err end
+		local offset, err = self:seek(); if not offset then return nil, err end
+		local sz = size - offset
+		if sz == 0 then return nil, 0 end
+		local buf = ffi.new(u8a, sz)
+		local n, err = self:read(buf, sz)
+		if not n then return nil, err end
+		if n < sz then return nil, 'partial', buf, n end
+		return buf, n
+	elseif self.type == 'pipe' then
+		local arr = dynarray()
+		local ofs = 0
+		while true do
+			local buf, sz = arr(ofs + 1024 * 16)
+			local n, err = self:read(buf + ofs, sz - ofs, expires)
+			if not n then return nil, err, 'partial', buf, ofs end
+			if n == 0 then return buf, ofs + n end
+			ofs = ofs + n
+		end
+	else
+		assert(false)
+	end
 end
 
 --filesystem operations ------------------------------------------------------
@@ -632,7 +631,7 @@ function fs.open_buffer(buf, sz, mode)
 	mode = mode or 'r'
 	assert(mode == 'r' or mode == 'w', 'invalid mode: "%s"', mode)
 	local f = {
-		buffer = ffi.cast(char_ptr_ct, buf),
+		buffer = ffi.cast(u8p, buf),
 		size = sz,
 		offset = 0,
 		mode = mode,

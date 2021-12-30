@@ -35,6 +35,7 @@ __memory streams__
 __file i/o__
 `f:read(buf, len) -> readlen`                     read data from file
 `f:readn(buf, n) -> true`                         read exactly n bytes
+`f:readall() -> buf, len`                         read until EOF into a buffer
 `f:write(s | buf,len) -> true`                    write data to file
 `f:flush()`                                       flush buffers
 `f:seek([whence] [, offset]) -> pos`              get/set the file pointer
@@ -264,14 +265,18 @@ using the file API. Only opening modes `'r'` and `'w'` are supported.
 
 ## File I/O
 
-### `f:read(buf, len) -> readlen`
+### `f:read(buf, len, [expires]) -> readlen`
 
 Read data from file. Returns (and keeps returning) 0 on EOF or broken pipe.
 
-### `f:readn(buf, len) -> true`
+### `f:readn(buf, len, [expires]) -> true`
 
 Read data from file until `len` is read.
 Partial reads are signaled with `nil, err, readlen`.
+
+### `f:readall([expires]) -> buf, len`
+
+Read until EOF into a buffer.
 
 ### `f:write(s | buf,len) -> true`
 

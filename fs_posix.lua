@@ -245,7 +245,7 @@ int fsync(int fd);
 int64_t lseek(int fd, int64_t offset, int whence) asm("lseek%s");
 ]], linux and '64' or ''))
 
-function file.read(f, buf, sz)
+function file.read(f, buf, sz, expires)
 	assert(sz > 0) --because it returns 0 for EOF
 	if f._async then
 		local sock = require'sock'
@@ -257,7 +257,7 @@ function file.read(f, buf, sz)
 	end
 end
 
-function file._write(f, buf, sz)
+function file._write(f, buf, sz, expires)
 	if f._async then
 		local sock = require'sock'
 		return sock._file_async_write(f, buf, sz, expires)
