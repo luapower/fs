@@ -34,10 +34,10 @@ local void_ptr_ct = ffi.typeof'void*'
 local uintptr_ct  = ffi.typeof'uintptr_t'
 
 local u8p = glue.u8p
+local readall = glue.readall
 
 assert = glue.assert
 buffer = glue.buffer
-dynarray = glue.dynarray
 update = glue.update
 
 --error reporting ------------------------------------------------------------
@@ -268,15 +268,7 @@ function file:readall(expires)
 		if n < sz then return nil, 'partial', buf, n end
 		return buf, n
 	elseif self.type == 'pipe' then
-		local arr = dynarray()
-		local ofs = 0
-		while true do
-			local buf, sz = arr(ofs + 1024 * 16)
-			local n, err = self:read(buf + ofs, sz - ofs, expires)
-			if not n then return nil, err, 'partial', buf, ofs end
-			if n == 0 then return buf, ofs + n end
-			ofs = ofs + n
-		end
+		return readall(self.read, self, expires)
 	else
 		assert(false)
 	end
