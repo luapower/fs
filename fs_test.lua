@@ -577,7 +577,7 @@ function test.times()
 end
 
 function test.times_set()
-	local testfile = 'fs_test_time'
+	local testfile = prefix..'fs_test_time'
 	local f = assert(fs.open(testfile, 'w'))
 
 	--TODO: futimes() on OSX doesn't use tv_usec
